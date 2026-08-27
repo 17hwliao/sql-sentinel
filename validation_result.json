@@ -1,0 +1,132 @@
+{
+  "generated_at": "2026-08-27T09:36:50Z",
+  "env": {
+    "os": "windows",
+    "arch": "amd64",
+    "go_version": "go1.26.3",
+    "mysql_version": "8.4.11"
+  },
+  "dataset": {
+    "seed": 42,
+    "rows": 1000000,
+    "dataset_version": "daf8a3324856",
+    "schema_version": "orders-v1",
+    "generator_version": "gen-v1",
+    "distribution_version": "dist-v1"
+  },
+  "snapshot": {
+    "digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",
+    "rows": 1000000,
+    "match": true
+  },
+  "case": {
+    "name": "hot_user_paid_recent_desc",
+    "sql": "SELECT id, amount_cents, created_at\nFROM orders\nWHERE user_id = ? AND status = ? AND created_at \u003e= ?\nORDER BY created_at DESC\nLIMIT 20",
+    "args": [
+      "1",
+      "paid",
+      "2024-01-01 02:00:00 +0000 UTC"
+    ]
+  },
+  "candidate_index": "idx_cand_user_status_created",
+  "calibration": {
+    "mode": "标定（B→C 交替 20 轮，统计按侧独立计算）",
+    "baseline": {
+      "name": "baseline",
+      "rounds": 20,
+      "raw_ms": [
+        136.5428,
+        138.6613,
+        136.7386,
+        142.4191,
+        138.133,
+        140.8875,
+        136.9594,
+        136.887,
+        156.3345,
+        138.8172,
+        135.9558,
+        149.2572,
+        145.5817,
+        138.004,
+        140.4133,
+        137.2682,
+        138.3916,
+        137.7988,
+        144.5385,
+        139.9045
+      ],
+      "median_ms": 138.52645,
+      "scaled_mad_ms": 2.540657,
+      "noise_ratio": 0.018340591273363318
+    },
+    "candidate": {
+      "name": "candidate",
+      "rounds": 20,
+      "raw_ms": [
+        3.7135,
+        2.9241,
+        2.8129,
+        2.9169,
+        2.6531,
+        3.3844,
+        3.5301,
+        3.5477,
+        3.3042,
+        2.7539,
+        2.5043,
+        3.2666,
+        2.8843,
+        3.2423,
+        2.5724,
+        2.8245,
+        2.9432,
+        2.9924,
+        2.6989,
+        3.0212
+      ],
+      "median_ms": 2.93365,
+      "scaled_mad_ms": 0.381991,
+      "noise_ratio": 0.13021014776813866
+    }
+  },
+  "measurement": {
+    "mode": "正式测量（B→C 交替 5 轮）",
+    "baseline": {
+      "name": "baseline",
+      "rounds": 5,
+      "raw_ms": [
+        137.8822,
+        147.4486,
+        136.9359,
+        148.6285,
+        137.766
+      ],
+      "median_ms": 137.8822,
+      "scaled_mad_ms": 1.402984,
+      "noise_ratio": 0.010175236542497872
+    },
+    "candidate": {
+      "name": "candidate",
+      "rounds": 5,
+      "raw_ms": [
+        2.8964,
+        2.5918,
+        3.3333,
+        2.8012,
+        3.193
+      ],
+      "median_ms": 2.8964,
+      "scaled_mad_ms": 0.439739,
+      "noise_ratio": 0.15182260737467201
+    }
+  },
+  "verdict": {
+    "max_noise_ratio": 0.13021014776813866,
+    "significance_multiplier": 2,
+    "threshold_ratio": 0.2604202955362773,
+    "threshold_from": "candidate",
+    "relative_delta": -0.9789936627062812,
+    "verdict": "Better"
+  }
+}

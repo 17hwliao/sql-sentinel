@@ -1,0 +1,176 @@
+package report
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"time"
+
+	"sqlsentinel/internal/measure"
+)
+
+// Side 是单侧的统计结果，含原始样本。
+// 原始样本必须落进报告：只留中位数的话，事后无法复核噪声计算，也看不出离群点分布。
+type Side struct {
+	Name        string    `json:"name"`
+	Rounds      int       `json:"rounds"`
+	RawMs       []float64 `json:"raw_ms"`
+	MedianMs    float64   `json:"median_ms"`
+	ScaledMADMs float64   `json:"scaled_mad_ms"`
+	NoiseRatio  float64   `json:"noise_ratio"`
+}
+
+// Phase 是一个测量阶段（标定或正式测量）的两侧结果。
+type Phase struct {
+	Mode      string `json:"mode"`
+	Baseline  Side   `json:"baseline"`
+	Candidate Side   `json:"candidate"`
+}
+
+// Verdict 是判定块。所有数值都直接取自 measure.Decision，报告层不重算。
+type Verdict struct {
+	MaxNoiseRatio          float64 `json:"max_noise_ratio"`
+	SignificanceMultiplier float64 `json:"significance_multiplier"`
+	ThresholdRatio         float64 `json:"threshold_ratio"`
+	ThresholdFrom          string  `json:"threshold_from"`
+	RelativeDelta          float64 `json:"relative_delta"`
+	Verdict                string  `json:"verdict"`
+}
+
+// DatasetInfo 记录复现数据集所需的全部版本信息。
+type DatasetInfo struct {
+	Seed                uint64 `json:"seed"`
+	Rows                int64  `json:"rows"`
+	DatasetVersion      string `json:"dataset_version"`
+	SchemaVersion       string `json:"schema_version"`
+	GeneratorVersion    string `json:"generator_version"`
+	DistributionVersion string `json:"distribution_version"`
+}
+
+// SnapshotInfo 记录门禁现场重算的快照结论。
+type SnapshotInfo struct {
+	Digest string `json:"digest"`
+	Rows   int64  `json:"rows"`
+	Match  bool   `json:"match"`
+}
+
+// CaseInfo 记录被测的 Query Case。
+type CaseInfo struct {
+	Name string   `json:"name"`
+	SQL  string   `json:"sql"`
+	Args []string `json:"args"`
+}
+
+// EnvInfo 记录环境，用于判断报告是否可跨机器比较。
+type EnvInfo struct {
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	GoVersion string `json:"go_version"`
+	MySQL     string `json:"mysql_version"`
+}
+
+// Result 是一次 bench 的完整结果，也是**唯一**的事实来源。
+// JSON 与终端摘要都只读本对象，任何一方自己重算统计量都会导致两者悄悄不一致。
+type Result struct {
+	GeneratedAt    string       `json:"generated_at"`
+	Env            EnvInfo      `json:"env"`
+	Dataset        DatasetInfo  `json:"dataset"`
+	Snapshot       SnapshotInfo `json:"snapshot"`
+	Case           CaseInfo     `json:"case"`
+	CandidateIndex string       `json:"candidate_index"`
+
+	Calibration Phase  `json:"calibration"`
+	Measurement *Phase `json:"measurement,omitempty"`
+
+	// Verdict 在 --rounds 0（只标定）时为空：没有测量就没有结论，
+	// 不能给一个默认的 NotSignificant 冒充结果。
+	Verdict *Verdict `json:"verdict,omitempty"`
+}
+
+// NewSide 由统计摘要与原始样本构造报告侧。
+func NewSide(stats measure.SideStats, raw []time.Duration) Side {
+	ms := make([]float64, len(raw))
+	for i, d := range raw {
+		ms[i] = toMs(d)
+	}
+	return Side{
+		Name:        stats.Name,
+		Rounds:      stats.Samples,
+		RawMs:       ms,
+		MedianMs:    toMs(stats.Median),
+		ScaledMADMs: toMs(stats.ScaledMAD),
+		NoiseRatio:  stats.NoiseRatio,
+	}
+}
+
+// NewVerdict 由判定结果构造报告判定块，逐字段搬运，不做任何再计算。
+func NewVerdict(d measure.Decision) Verdict {
+	return Verdict{
+		MaxNoiseRatio:          d.MaxNoiseRatio,
+		SignificanceMultiplier: measure.SignificanceMultiplier,
+		ThresholdRatio:         d.ThresholdRatio,
+		ThresholdFrom:          d.ThresholdFrom,
+		RelativeDelta:          d.RelativeDelta,
+		Verdict:                string(d.Verdict),
+	}
+}
+
+func toMs(d time.Duration) float64 {
+	return float64(d) / float64(time.Millisecond)
+}
+
+// WriteJSON 输出机器可读报告。
+func WriteJSON(w io.Writer, r Result) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
+}
+
+// WriteSummary 输出终端摘要。只格式化 Result 已有的字段，不重算任何统计量。
+func WriteSummary(w io.Writer, r Result) {
+	fmt.Fprintf(w, "\n=== A/B 测量报告 ===\n")
+	fmt.Fprintf(w, "生成时间   %s\n", r.GeneratedAt)
+	fmt.Fprintf(w, "环境       %s/%s  Go %s  MySQL %s\n",
+		r.Env.OS, r.Env.Arch, r.Env.GoVersion, r.Env.MySQL)
+	fmt.Fprintf(w, "数据集     seed=%d rows=%d version=%s\n",
+		r.Dataset.Seed, r.Dataset.Rows, r.Dataset.DatasetVersion)
+	fmt.Fprintf(w, "           schema=%s generator=%s distribution=%s\n",
+		r.Dataset.SchemaVersion, r.Dataset.GeneratorVersion, r.Dataset.DistributionVersion)
+	fmt.Fprintf(w, "快照       rows=%d digest=%s 一致=%t\n",
+		r.Snapshot.Rows, shortHex(r.Snapshot.Digest), r.Snapshot.Match)
+	fmt.Fprintf(w, "Case       %s\n", r.Case.Name)
+	fmt.Fprintf(w, "候选索引   %s\n", r.CandidateIndex)
+
+	writePhase(w, r.Calibration)
+	if r.Measurement != nil {
+		writePhase(w, *r.Measurement)
+	}
+
+	if r.Verdict == nil {
+		fmt.Fprintf(w, "\n判定       未测量（只做了标定），无结论\n")
+		return
+	}
+
+	v := *r.Verdict
+	fmt.Fprintf(w, "\n噪声基数   %.2f%%（取自 %s，两侧较大者）\n", v.MaxNoiseRatio*100, v.ThresholdFrom)
+	fmt.Fprintf(w, "判定门槛   %.2f%%  = %.1f × %.2f%%\n",
+		v.ThresholdRatio*100, v.SignificanceMultiplier, v.MaxNoiseRatio*100)
+	fmt.Fprintf(w, "中位数变化 %+.2f%%\n", v.RelativeDelta*100)
+	fmt.Fprintf(w, "判定       %s\n", v.Verdict)
+}
+
+func writePhase(w io.Writer, p Phase) {
+	fmt.Fprintf(w, "\n--- %s ---\n", p.Mode)
+	fmt.Fprintf(w, "  %-10s %-8s %-12s %-14s %s\n", "侧", "轮数", "中位数(ms)", "scaledMAD(ms)", "噪声比")
+	for _, s := range []Side{p.Baseline, p.Candidate} {
+		fmt.Fprintf(w, "  %-10s %-8d %-12.3f %-14.3f %.2f%%\n",
+			s.Name, s.Rounds, s.MedianMs, s.ScaledMADMs, s.NoiseRatio*100)
+	}
+}
+
+func shortHex(s string) string {
+	if len(s) <= 16 {
+		return s
+	}
+	return s[:16] + "…"
+}

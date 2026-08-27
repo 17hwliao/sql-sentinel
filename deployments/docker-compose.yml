@@ -1,0 +1,37 @@
+name: sql-sentinel-stage0
+
+# baseline 与 candidate 必须完全对称：同镜像、同配置、同资源。
+# 不设 cpus/mem 限制 —— 两侧同为不限即已对称；限制 cpus 属噪声排查的可选实验，
+# 只有实测确实降低噪声才写进本文件。
+# 不挂持久卷：容器数据每次重建即丢弃。
+
+x-mysql: &mysql
+  # 配置烧进镜像，不用 bind mount。
+  # Windows bind mount 会让 my.cnf 在容器内变成 world-writable，MySQL 会直接忽略它，
+  # 参数静默回落默认值（buffer pool 128M / time_zone=SYSTEM），测量环境即失去可信性。
+  build:
+    context: ./mysql
+    dockerfile: Dockerfile
+  image: sqlsentinel/mysql:8.4-stage0
+  environment:
+    MYSQL_ROOT_PASSWORD: sentinel
+    MYSQL_DATABASE: sentinel
+  healthcheck:
+    test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-psentinel"]
+    interval: 5s
+    timeout: 5s
+    retries: 24
+    start_period: 20s
+
+services:
+  baseline:
+    <<: *mysql
+    container_name: sqlsentinel-baseline
+    ports:
+      - "13306:3306"
+
+  candidate:
+    <<: *mysql
+    container_name: sqlsentinel-candidate
+    ports:
+      - "13307:3306"

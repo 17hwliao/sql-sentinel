@@ -167,3 +167,58 @@ sql-sentinel/
   datasets/
   tests/{unit,integration,benchmark}/
 ```
+
+## 13. 阶段 0 本地运行步骤（已实测）
+
+环境：Windows 本机跑 Go，MySQL 仅以两个独立 Docker 容器提供，不使用 WSL。
+本机需已安装 Go 1.26+ 与 Docker Desktop（含 Compose v2）。
+
+### 启动双影子库
+
+```bash
+docker compose -f deployments/docker-compose.yml up -d --build
+```
+
+两个容器：`sqlsentinel-baseline`（127.0.0.1:13306）、`sqlsentinel-candidate`（127.0.0.1:13307）。
+`my.cnf` 通过 `deployments/mysql/Dockerfile` 以 `COPY --chmod=0644` 烧进镜像 ——
+用 Windows bind mount 挂载会让配置在容器内变成 world-writable，MySQL 会静默忽略它，
+参数回落默认值（buffer pool 128M、`time_zone=SYSTEM`），测量环境即失去可信性。
+
+确认两侧参数真的生效：
+
+```bash
+docker exec sqlsentinel-baseline mysql -uroot -psentinel -e \
+  "SELECT VERSION(), @@time_zone, @@innodb_buffer_pool_size, @@performance_schema"
+```
+
+### 造数、校验、建候选索引、测量
+
+```bash
+go run ./cmd/sentinel seed   --rows 1000000 --seed 42 --target both
+go run ./cmd/sentinel verify --seed 42
+go run ./cmd/sentinel index  --target candidate
+go run ./cmd/sentinel bench  --calibrate 20 --rounds 0 --out calibration-1.json
+go run ./cmd/sentinel bench  --calibrate 20 --rounds 5 --out validation_result.json
+```
+
+顺序不可调换，且由程序强制：
+
+- 两侧在**无候选索引**状态下各自确定性造数（行内容只由 `(seed, rowIndex)` 决定，
+  因此无需 dump/restore 同步快照）；
+- `verify` 按主键升序分块算 SHA-256，两侧不一致直接拒绝；
+- `index` 只接受 `--target candidate`，对 `baseline` 会拒绝且不发出任何 DDL；
+- `index` 与 `bench` 在动手前都**现场重算**两侧快照，不复用上一条命令的结果；
+  `bench` 还要求两侧 MySQL 版本一致且 candidate 候选索引存在。
+
+### 验证
+
+```bash
+go build ./... && go vet ./... && go test -count=1 ./...
+```
+
+### 已知限制
+
+100 万行下 candidate 侧中位数约 2.9ms，scaled MAD 约 0.38ms，噪声比 13%，
+超过阶段 0 约定的 10% 门槛。噪声比是相对量，查询越快越难达标。
+因此当前环境**不足以据此声称读收益**，详见
+[specs/001-trusted-ab-measurement/plan.md](specs/001-trusted-ab-measurement/plan.md) 的 Spike 记录。

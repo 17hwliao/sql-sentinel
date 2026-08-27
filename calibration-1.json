@@ -1,0 +1,93 @@
+{
+  "generated_at": "2026-08-27T09:34:10Z",
+  "env": {
+    "os": "windows",
+    "arch": "amd64",
+    "go_version": "go1.26.3",
+    "mysql_version": "8.4.11"
+  },
+  "dataset": {
+    "seed": 42,
+    "rows": 1000000,
+    "dataset_version": "daf8a3324856",
+    "schema_version": "orders-v1",
+    "generator_version": "gen-v1",
+    "distribution_version": "dist-v1"
+  },
+  "snapshot": {
+    "digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",
+    "rows": 1000000,
+    "match": true
+  },
+  "case": {
+    "name": "hot_user_paid_recent_desc",
+    "sql": "SELECT id, amount_cents, created_at\nFROM orders\nWHERE user_id = ? AND status = ? AND created_at \u003e= ?\nORDER BY created_at DESC\nLIMIT 20",
+    "args": [
+      "1",
+      "paid",
+      "2024-01-01 02:00:00 +0000 UTC"
+    ]
+  },
+  "candidate_index": "idx_cand_user_status_created",
+  "calibration": {
+    "mode": "标定（B→C 交替 20 轮，统计按侧独立计算）",
+    "baseline": {
+      "name": "baseline",
+      "rounds": 20,
+      "raw_ms": [
+        135.5568,
+        139.2183,
+        143.9153,
+        160.1806,
+        135.1775,
+        136.1438,
+        137.7628,
+        141.531,
+        141.3804,
+        141.273,
+        138.7151,
+        151.7451,
+        146.2886,
+        145.2368,
+        140.6788,
+        140.2472,
+        136.8462,
+        140.9918,
+        136.114,
+        144.0303
+      ],
+      "median_ms": 140.8353,
+      "scaled_mad_ms": 4.651657,
+      "noise_ratio": 0.03302905592560956
+    },
+    "candidate": {
+      "name": "candidate",
+      "rounds": 20,
+      "raw_ms": [
+        3.3075,
+        2.0574,
+        2.5705,
+        2.7227,
+        3.3483,
+        2.7721,
+        3.2315,
+        3.2973,
+        2.1365,
+        2.6232,
+        2.1649,
+        3.0135,
+        2.868,
+        2.89,
+        3.1064,
+        2.5931,
+        2.6012,
+        3.3241,
+        2.7336,
+        2.6154
+      ],
+      "median_ms": 2.75285,
+      "scaled_mad_ms": 0.328395,
+      "noise_ratio": 0.1192927329858147
+    }
+  }
+}
