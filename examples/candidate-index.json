@@ -1,0 +1,9 @@
+{
+  "table": "orders",
+  "index_name": "idx_cand_user_status_created",
+  "columns": [
+    { "name": "user_id" },
+    { "name": "status", "direction": "ASC" },
+    { "name": "created_at", "direction": "DESC" }
+  ]
+}

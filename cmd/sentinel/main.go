@@ -34,6 +34,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   index     仅在 candidate 建候选索引并 ANALYZE TABLE（先过快照门禁）
   bench     噪声标定与 A/B 交替测量，输出 JSON 报告（先过快照与索引门禁）
   admit-series  汇总多份标定与正式报告，生成跨运行性能证据结论
+  candidate-preview  校验 CandidateSpec JSON 并仅预览候选 DDL，不执行
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -90,6 +91,10 @@ func main() {
 		}
 	case "admit-series":
 		if err := runAdmitSeries(args); err != nil {
+			fatal(err)
+		}
+	case "candidate-preview":
+		if err := runCandidatePreview(args); err != nil {
 			fatal(err)
 		}
 	default:

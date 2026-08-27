@@ -268,3 +268,20 @@ go run ./cmd/sentinel admit-series \
 
 对当前三份 N=10 报告，实际输出为 `false` / `L1`，原因是
 `calibration_noise_exceeds_limit (batched-n10-calibration-2.json)`；输入报告不会被修改。
+
+## 14. CandidateSpec：候选索引的受限输出
+
+Agent 不能直接输出或执行 DDL。它只能给出 `CandidateSpec` JSON，Go 会严格解码、校验并预览确定性 DDL：
+
+```bash
+go run ./cmd/sentinel candidate-preview --in examples/candidate-index.json
+```
+
+输出示例：
+
+```sql
+CREATE INDEX `idx_cand_user_status_created` ON `orders` (`user_id` ASC, `status` ASC, `created_at` DESC)
+```
+
+该命令只读取文件并输出 stdout，不连接 MySQL、不会执行 DDL。Spec 只允许普通二级索引、1–4 个安全标识符列，
+索引名必须以 `idx_cand_` 开头；`sql`、`ddl` 等未知字段会被拒绝，不能作为自由 SQL 通道。
