@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-08-27T12:38:14Z",
+  "evidence_level": "L1",
+  "performance_claim_eligible": false,
+  "mysql_version": "8.4.11",
+  "snapshot": {
+    "digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",
+    "rows": 1000000
+  },
+  "sql_input": {
+    "sql": "SELECT id, amount_cents\nFROM orders\nWHERE status = 'paid'\nORDER BY amount_cents DESC\nLIMIT 20;\n",
+    "signals": []
+  },
+  "candidate_index": {
+    "table": "orders",
+    "name": "idx_cand_status_amount",
+    "ddl": "CREATE INDEX `idx_cand_status_amount` ON `orders` (`status` ASC, `amount_cents` DESC)",
+    "created": true
+  },
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost_info": {
+        "query_cost": "54556.15"
+      },
+      "ordering_operation": {
+        "using_filesort": false,
+        "table": {
+          "table_name": "orders",
+          "access_type": "ref",
+          "possible_keys": [
+            "idx_cand_status_amount"
+          ],
+          "key": "idx_cand_status_amount",
+          "used_key_parts": [
+            "status"
+          ],
+          "key_length": "66",
+          "ref": [
+            "const"
+          ],
+          "rows_examined_per_scan": 495956,
+          "rows_produced_per_join": 495956,
+          "filtered": "100.00",
+          "using_index": true,
+          "cost_info": {
+            "read_cost": "4960.55",
+            "eval_cost": "49595.60",
+            "prefix_cost": "54556.15",
+            "data_read_per_join": "654M"
+          },
+          "used_columns": [
+            "id",
+            "status",
+            "amount_cents"
+          ]
+        }
+      }
+    }
+  }
+}

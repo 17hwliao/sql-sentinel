@@ -307,3 +307,24 @@ go run ./cmd/sentinel sql-admit --in examples/read-only-query.sql
 
 `signals` 仅是需要继续调查的静态 L0 线索（目前包括 `select_star`、`leading_wildcard_like`、
 `function_on_probable_column`），不是性能结论；任何优化判断仍须由 schema、`EXPLAIN` 和影子库验证支撑。
+
+## 16. Candidate 影子库 EXPLAIN 门禁
+
+在已通过 `seed` 与 `verify`、且 baseline/candidate 快照一致的前提下，使用受限 CandidateSpec
+在 candidate 影子库创建或复用候选索引，并取得执行计划：
+
+```bash
+go run ./cmd/sentinel candidate-explain \
+  --sql examples/candidate-explain-query.sql \
+  --candidate examples/candidate-explain-index.json \
+  --out candidate_explain_report.json
+```
+
+该命令在连接数据库前先复用 `sql-admit` 和严格 CandidateSpec 校验；随后检查两侧 MySQL 版本、
+现场重算 `orders` 数据快照，并在 candidate 确认表/列与同名索引定义。只有 candidate 会执行受限
+`CREATE INDEX` 和 `ANALYZE TABLE`；baseline 仅用于版本和快照门禁，绝不接收 DDL。输入 SQL 仅以
+`EXPLAIN FORMAT=JSON` 形式提交，原 SQL 不会执行。
+
+输出报告包含快照、MySQL 版本、L0 静态信号、确定性候选 DDL、索引创建状态和 EXPLAIN JSON。它固定标为
+L1，`performance_claim_eligible=false`：计划显示了什么并不等于该索引有性能收益；要得出收益结论仍须执行
+受控 A/B 测量并通过既有的准入门槛。

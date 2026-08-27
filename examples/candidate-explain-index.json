@@ -1,0 +1,8 @@
+{
+  "table": "orders",
+  "index_name": "idx_cand_status_amount",
+  "columns": [
+    { "name": "status" },
+    { "name": "amount_cents", "direction": "DESC" }
+  ]
+}
