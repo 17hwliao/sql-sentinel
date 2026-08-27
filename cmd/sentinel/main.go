@@ -35,6 +35,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   bench     噪声标定与 A/B 交替测量，输出 JSON 报告（先过快照与索引门禁）
   admit-series  汇总多份标定与正式报告，生成跨运行性能证据结论
   candidate-preview  校验 CandidateSpec JSON 并仅预览候选 DDL，不执行
+  sql-admit  校验单条只读 SQL，输出 L0 静态风险信号，不连接数据库
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -56,6 +57,9 @@ bench 参数:
   --chunk N       门禁重算快照时的分块大小（默认 5000）
   --seed N        数据集种子，仅记入报告的复现信息（默认 42）
   --out PATH      JSON 报告输出路径（默认 validation_result.json）
+
+sql-admit 参数:
+  --in PATH       单条只读 SQL 文件（必填）
 
 先启动容器:
   docker compose -f deployments/docker-compose.yml up -d
@@ -95,6 +99,10 @@ func main() {
 		}
 	case "candidate-preview":
 		if err := runCandidatePreview(args); err != nil {
+			fatal(err)
+		}
+	case "sql-admit":
+		if err := runSQLAdmit(args); err != nil {
 			fatal(err)
 		}
 	default:

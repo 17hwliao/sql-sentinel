@@ -285,3 +285,25 @@ CREATE INDEX `idx_cand_user_status_created` ON `orders` (`user_id` ASC, `status`
 
 该命令只读取文件并输出 stdout，不连接 MySQL、不会执行 DDL。Spec 只允许普通二级索引、1–4 个安全标识符列，
 索引名必须以 `idx_cand_` 开头；`sql`、`ddl` 等未知字段会被拒绝，不能作为自由 SQL 通道。
+
+## 15. 只读 SQL 准入（L0 静态信号）
+
+在把一条 SQL 交给后续影子库取证前，可先执行本地、无副作用的准入检查：
+
+```bash
+go run ./cmd/sentinel sql-admit --in examples/read-only-query.sql
+```
+
+示例输出：
+
+```json
+{"accepted":true,"evidence_level":"L0","signals":["select_star","leading_wildcard_like"]}
+```
+
+该命令只接受单条 `SELECT` 或 `WITH ... SELECT`，会拒绝空输入、多语句、DDL/DML、
+`INTO OUTFILE` / `DUMPFILE`、`FOR UPDATE` 和 `LOCK IN SHARE MODE`。扫描时忽略字符串、
+反引号标识符和普通注释中的关键字或分号；MySQL 可执行注释会保守拒绝。命令只读取文件并写 JSON 到 stdout，
+不连接 Docker 或 MySQL，也绝不执行 SQL。
+
+`signals` 仅是需要继续调查的静态 L0 线索（目前包括 `select_star`、`leading_wildcard_like`、
+`function_on_probable_column`），不是性能结论；任何优化判断仍须由 schema、`EXPLAIN` 和影子库验证支撑。
