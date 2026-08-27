@@ -38,6 +38,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   sql-admit  校验单条只读 SQL，输出 L0 静态风险信号，不连接数据库
   candidate-explain  仅在 candidate 影子库应用受限索引并输出 L1 EXPLAIN 报告
   explain-compare  对照 baseline/candidate EXPLAIN，输出 L1 结构化计划差异
+  diagnose-plan  从 L1 EXPLAIN 对照报告生成待验证诊断假设
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -72,6 +73,10 @@ explain-compare 参数:
   --sql PATH        单条已准入 SQL 文件（必填）
   --candidate PATH  CandidateSpec JSON 文件（必填）
   --out PATH        EXPLAIN 对照 JSON 报告输出路径（必填）
+
+diagnose-plan 参数:
+  --in PATH   L1 EXPLAIN 对照 JSON 报告（必填）
+  --out PATH  诊断假设 JSON 报告（必填）
 
 先启动容器:
   docker compose -f deployments/docker-compose.yml up -d
@@ -123,6 +128,10 @@ func main() {
 		}
 	case "explain-compare":
 		if err := runExplainCompare(args); err != nil {
+			fatal(err)
+		}
+	case "diagnose-plan":
+		if err := runDiagnosePlan(args); err != nil {
 			fatal(err)
 		}
 	default:

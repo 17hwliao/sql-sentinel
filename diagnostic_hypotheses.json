@@ -1,0 +1,70 @@
+{
+  "generated_at": "2026-08-27T13:28:51Z",
+  "evidence_level": "L1",
+  "eligible_for_performance_claim": false,
+  "source": {
+    "sha256": "1192a7e2bdb109451b55523fb1df266ef4a673cc4ab726e785e396894b1807b7",
+    "generated_at": "2026-08-27T13:12:43Z",
+    "mysql_version": "8.4.11",
+    "snapshot_digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd"
+  },
+  "hypotheses": [
+    {
+      "code": "candidate_index_removes_filesort",
+      "evidence_level": "L1",
+      "statement": "The candidate plan removes a filesort that is present in the baseline plan.",
+      "facts": [
+        {
+          "field": "difference.baseline_uses_filesort",
+          "value": "true"
+        },
+        {
+          "field": "difference.candidate_uses_filesort",
+          "value": "false"
+        }
+      ],
+      "required_verification": [
+        "controlled_ab_measurement",
+        "series_admission"
+      ]
+    },
+    {
+      "code": "candidate_index_changes_access_path",
+      "evidence_level": "L1",
+      "statement": "The candidate plan uses an index that is absent from the baseline plan.",
+      "facts": [
+        {
+          "field": "difference.candidate_only_keys",
+          "value": "idx_cand_status_amount"
+        }
+      ],
+      "required_verification": [
+        "controlled_ab_measurement",
+        "series_admission"
+      ]
+    },
+    {
+      "code": "candidate_index_reduces_estimated_scan",
+      "evidence_level": "L1",
+      "statement": "The candidate plan estimates fewer rows examined than the baseline plan.",
+      "facts": [
+        {
+          "field": "baseline.rows_examined_per_scan_total",
+          "value": "992595"
+        },
+        {
+          "field": "candidate.rows_examined_per_scan_total",
+          "value": "496809"
+        }
+      ],
+      "required_verification": [
+        "controlled_ab_measurement",
+        "series_admission"
+      ]
+    }
+  ],
+  "unresolved": [
+    "EXPLAIN differences are plan evidence, not measured latency or write-cost evidence.",
+    "Each hypothesis requires controlled_ab_measurement and series_admission before a performance claim."
+  ]
+}

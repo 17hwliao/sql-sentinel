@@ -348,3 +348,22 @@ go run ./cmd/sentinel explain-compare \
 覆盖索引与 filesort 状态。示例实测中 baseline 为全表扫描且 `uses_filesort=true`，candidate 使用
 `idx_cand_status_amount`、`uses_filesort=false`。报告固定为 L1 且
 `eligible_for_performance_claim=false`；预计扫描行数、cost 或 filesort 差异都是计划证据，不是性能收益结论。
+
+## 18. 受限诊断假设
+
+在已经生成 L1 EXPLAIN 对照报告后，可将其中已有事实转换为后续取证用的机器可读假设：
+
+```bash
+go run ./cmd/sentinel diagnose-plan \
+  --in explain_comparison_report.json \
+  --out diagnostic_hypotheses.json
+```
+
+命令只读取严格的本项目 L1 对照 JSON；未知字段、多个 JSON 值、非 L1 输入或已经具备性能收益资格的输入都会拒绝。
+输出会记录输入文件 SHA-256、快照与 MySQL 版本，并且仅在事实存在时生成稳定的诊断码：
+`candidate_index_removes_filesort`、`candidate_index_changes_access_path`、
+`candidate_index_reduces_estimated_scan`。
+
+这不是索引建议，也不会连接 MySQL、执行 SQL 或 DDL。每条假设都明确要求先经过
+`controlled_ab_measurement` 与 `series_admission`；诊断报告固定为 L1 且
+`eligible_for_performance_claim=false`。
