@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-08-27T14:01:23Z",
+  "evidence_level": "L1",
+  "eligible_for_performance_claim": false,
+  "binding_complete": false,
+  "source": {
+    "diagnosis_sha256": "f5ec1d36f689b4e8a3abe48560d6972e078dab8122a2c7b743df6e9fdb3764f1",
+    "comparison_sha256": "f6d410a8dfe96f28f7421e8c65281b1fec8c40b15961fdcaf742ce8de139e027",
+    "snapshot_digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",
+    "mysql_version": "8.4.11",
+    "measurement_file": "validation_result.json",
+    "candidate_index": "idx_cand_status_amount"
+  },
+  "hypotheses": [
+    {
+      "code": "candidate_index_removes_filesort",
+      "bound": false
+    },
+    {
+      "code": "candidate_index_changes_access_path",
+      "bound": false
+    },
+    {
+      "code": "candidate_index_reduces_estimated_scan",
+      "bound": false
+    }
+  ],
+  "rejection_reasons": [
+    {
+      "code": "diagnosis_source_sha_mismatch"
+    },
+    {
+      "code": "measurement_sql_mismatch"
+    },
+    {
+      "code": "candidate_index_mismatch"
+    },
+    {
+      "code": "series_measurement_file_mismatch"
+    },
+    {
+      "code": "series_not_eligible"
+    },
+    {
+      "code": "series_evidence_level_not_l2"
+    }
+  ]
+}

@@ -367,3 +367,22 @@ go run ./cmd/sentinel diagnose-plan \
 这不是索引建议，也不会连接 MySQL、执行 SQL 或 DDL。每条假设都明确要求先经过
 `controlled_ab_measurement` 与 `series_admission`；诊断报告固定为 L1 且
 `eligible_for_performance_claim=false`。
+
+## 19. 诊断—测量证据绑定
+
+`bind-evidence` 只读取既有的诊断、EXPLAIN 对照、正式 measurement 和系列准入 JSON，使用
+诊断所记录的对照 SHA-256、快照、MySQL 版本、SQL 原文、候选索引和 measurement 文件身份进行精确关联：
+
+```bash
+go run ./cmd/sentinel bind-evidence \
+  --diagnosis diagnostic_hypotheses.json \
+  --comparison explain_comparison_report.json \
+  --measurement validation_result.json \
+  --series series_admission.json \
+  --out evidence_binding_report.json
+```
+
+报告只会在全部身份一致且既有系列准入已经是
+`eligible_for_performance_claim=true` / `L2` 时继承该资格；命令本身不会重新测量或升级证据。
+因此 `binding_complete=false`、L1 与稳定的 `rejection_reasons` 是正常的证据状态，**不是 bug**：它说明这些
+报告不能被安全地关联来声称性能收益。未知字段、损坏 JSON 或尾随 JSON 值会被拒绝，而不是宽松解析。

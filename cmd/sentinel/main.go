@@ -39,6 +39,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   candidate-explain  仅在 candidate 影子库应用受限索引并输出 L1 EXPLAIN 报告
   explain-compare  对照 baseline/candidate EXPLAIN，输出 L1 结构化计划差异
   diagnose-plan  从 L1 EXPLAIN 对照报告生成待验证诊断假设
+  bind-evidence  精确绑定诊断、对照、测量与系列证据
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -77,6 +78,13 @@ explain-compare 参数:
 diagnose-plan 参数:
   --in PATH   L1 EXPLAIN 对照 JSON 报告（必填）
   --out PATH  诊断假设 JSON 报告（必填）
+
+bind-evidence 参数:
+  --diagnosis PATH   诊断假设 JSON 报告（必填）
+  --comparison PATH  EXPLAIN 对照 JSON 报告（必填）
+  --measurement PATH bench 正式测量 JSON 报告（必填）
+  --series PATH      系列准入 JSON 报告（必填）
+  --out PATH         证据绑定 JSON 报告（必填）
 
 先启动容器:
   docker compose -f deployments/docker-compose.yml up -d
@@ -132,6 +140,10 @@ func main() {
 		}
 	case "diagnose-plan":
 		if err := runDiagnosePlan(args); err != nil {
+			fatal(err)
+		}
+	case "bind-evidence":
+		if err := runBindEvidence(args); err != nil {
 			fatal(err)
 		}
 	default:
