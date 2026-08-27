@@ -1,0 +1,15 @@
+{
+  "calibration_files": [
+    "batched-n10-calibration-1.json",
+    "batched-n10-calibration-2.json"
+  ],
+  "measurement_file": "batched-n10-validation.json",
+  "eligible_for_performance_claim": false,
+  "evidence_level": "L1",
+  "rejection_reasons": [
+    {
+      "code": "calibration_noise_exceeds_limit",
+      "source": "batched-n10-calibration-2.json"
+    }
+  ]
+}

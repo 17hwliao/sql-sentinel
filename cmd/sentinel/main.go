@@ -33,6 +33,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   verify    按主键升序分块比对两侧快照 SHA-256
   index     仅在 candidate 建候选索引并 ANALYZE TABLE（先过快照门禁）
   bench     噪声标定与 A/B 交替测量，输出 JSON 报告（先过快照与索引门禁）
+  admit-series  汇总多份标定与正式报告，生成跨运行性能证据结论
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -85,6 +86,10 @@ func main() {
 		}
 	case "bench":
 		if err := runBench(args); err != nil {
+			fatal(err)
+		}
+	case "admit-series":
+		if err := runAdmitSeries(args); err != nil {
 			fatal(err)
 		}
 	default:

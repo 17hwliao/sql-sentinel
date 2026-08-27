@@ -248,3 +248,23 @@ N=10 正式测量内部标定为 baseline 2.34%、candidate 9.62%，测量中位
 但是阶段协议要求两次独立标定都不超过 10%，第二次未通过。因此本批实验的**整体证据仍为 L1**，
 不得据此声称性能收益。`batched-n10-validation.json` 中的 L2 只基于它自身那一次标定，
 尚未表达跨报告的稳定性要求；后续应把“多次运行的系列准入”设计成独立功能，而不是选择性忽略失败报告。
+
+### 跨运行系列准入
+
+使用 `admit-series` 汇总预先指定的两份以上 calibration 报告和一份正式 measurement 报告：
+
+```bash
+go run ./cmd/sentinel admit-series \
+  --calibration batched-n10-calibration-1.json \
+  --calibration batched-n10-calibration-2.json \
+  --measurement batched-n10-validation.json \
+  --out series_admission.json
+```
+
+命令会拒绝 dataset version、快照摘要、MySQL 版本、Query Case、候选索引或
+`executions_per_round` 不一致的输入，也拒绝重复使用同一份 calibration 报告充数。
+只有所有 calibration 的两侧噪声均不超过 10%，且 measurement 自身为 `Better`、单份准入合格时，
+才输出系列 `eligible_for_performance_claim=true` / `L2`。
+
+对当前三份 N=10 报告，实际输出为 `false` / `L1`，原因是
+`calibration_noise_exceeds_limit (batched-n10-calibration-2.json)`；输入报告不会被修改。
