@@ -83,14 +83,14 @@ type CandidateIndex struct {
 // Report deliberately has no performance verdict. EXPLAIN plus schema is L1
 // plan evidence, not a benchmark result.
 type Report struct {
-	GeneratedAt              string          `json:"generated_at"`
-	EvidenceLevel            string          `json:"evidence_level"`
-	PerformanceClaimEligible bool            `json:"performance_claim_eligible"`
-	MySQLVersion             string          `json:"mysql_version"`
-	Snapshot                 Snapshot        `json:"snapshot"`
-	SQL                      SQLInput        `json:"sql_input"`
-	Candidate                CandidateIndex  `json:"candidate_index"`
-	ExplainJSON              json.RawMessage `json:"explain_json"`
+	GeneratedAt                 string          `json:"generated_at"`
+	EvidenceLevel               string          `json:"evidence_level"`
+	EligibleForPerformanceClaim bool            `json:"eligible_for_performance_claim"`
+	MySQLVersion                string          `json:"mysql_version"`
+	Snapshot                    Snapshot        `json:"snapshot"`
+	SQL                         SQLInput        `json:"sql_input"`
+	Candidate                   CandidateIndex  `json:"candidate_index"`
+	ExplainJSON                 json.RawMessage `json:"explain_json"`
 }
 
 // Run verifies the common environment, applies only the constrained candidate
@@ -125,14 +125,14 @@ func (g Gate) Run(ctx context.Context, p Prepared) (Report, error) {
 		return Report{}, errors.New("MySQL returned invalid EXPLAIN JSON")
 	}
 	return Report{
-		GeneratedAt:              time.Now().UTC().Format(time.RFC3339),
-		EvidenceLevel:            "L1",
-		PerformanceClaimEligible: false,
-		MySQLVersion:             version,
-		Snapshot:                 Snapshot{Digest: gate.Digest(), Rows: gate.Rows()},
-		SQL:                      SQLInput{SQL: p.SQL, Signals: p.SQLSignals},
-		Candidate:                CandidateIndex{Table: p.Spec.Table, Name: p.Spec.IndexName, DDL: p.DDL, Created: created},
-		ExplainJSON:              json.RawMessage(explain),
+		GeneratedAt:                 time.Now().UTC().Format(time.RFC3339),
+		EvidenceLevel:               "L1",
+		EligibleForPerformanceClaim: false,
+		MySQLVersion:                version,
+		Snapshot:                    Snapshot{Digest: gate.Digest(), Rows: gate.Rows()},
+		SQL:                         SQLInput{SQL: p.SQL, Signals: p.SQLSignals},
+		Candidate:                   CandidateIndex{Table: p.Spec.Table, Name: p.Spec.IndexName, DDL: p.DDL, Created: created},
+		ExplainJSON:                 json.RawMessage(explain),
 	}, nil
 }
 

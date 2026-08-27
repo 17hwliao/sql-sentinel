@@ -1,6 +1,7 @@
 package shadowgate
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -65,5 +66,22 @@ func TestSameIndexRequiresExactColumnsAndDirections(t *testing.T) {
 	}
 	if sameIndex(expected, []indexColumn{{Name: "amount_cents", Direction: "DESC"}, {Name: "status", Direction: "ASC"}}) {
 		t.Fatal("column order mismatch accepted")
+	}
+}
+
+func TestReportUsesSharedPerformanceClaimKey(t *testing.T) {
+	b, err := json.Marshal(Report{EligibleForPerformanceClaim: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(b, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fields["eligible_for_performance_claim"]; !ok {
+		t.Fatal("missing shared eligibility key")
+	}
+	if _, ok := fields["performance_claim_eligible"]; ok {
+		t.Fatal("legacy eligibility key must not be emitted")
 	}
 }

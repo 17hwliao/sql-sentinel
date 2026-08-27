@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-08-27T12:38:14Z",
   "evidence_level": "L1",
-  "performance_claim_eligible": false,
+  "eligible_for_performance_claim": false,
   "mysql_version": "8.4.11",
   "snapshot": {
     "digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",

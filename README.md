@@ -326,5 +326,5 @@ go run ./cmd/sentinel candidate-explain \
 `EXPLAIN FORMAT=JSON` 形式提交，原 SQL 不会执行。
 
 输出报告包含快照、MySQL 版本、L0 静态信号、确定性候选 DDL、索引创建状态和 EXPLAIN JSON。它固定标为
-L1，`performance_claim_eligible=false`：计划显示了什么并不等于该索引有性能收益；要得出收益结论仍须执行
+L1，`eligible_for_performance_claim=false`：计划显示了什么并不等于该索引有性能收益；要得出收益结论仍须执行
 受控 A/B 测量并通过既有的准入门槛。
