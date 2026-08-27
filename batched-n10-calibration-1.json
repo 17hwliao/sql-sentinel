@@ -1,0 +1,110 @@
+{
+  "generated_at": "2026-08-27T11:23:09Z",
+  "env": {
+    "os": "windows",
+    "arch": "amd64",
+    "go_version": "go1.26.3",
+    "mysql_version": "8.4.11"
+  },
+  "dataset": {
+    "seed": 42,
+    "rows": 1000000,
+    "dataset_version": "daf8a3324856",
+    "schema_version": "orders-v1",
+    "generator_version": "gen-v1",
+    "distribution_version": "dist-v1"
+  },
+  "snapshot": {
+    "digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",
+    "rows": 1000000,
+    "match": true
+  },
+  "case": {
+    "name": "hot_user_paid_recent_desc",
+    "sql": "SELECT id, amount_cents, created_at\nFROM orders\nWHERE user_id = ? AND status = ? AND created_at \u003e= ?\nORDER BY created_at DESC\nLIMIT 20",
+    "args": [
+      "1",
+      "paid",
+      "2024-01-01 02:00:00 +0000 UTC"
+    ]
+  },
+  "candidate_index": "idx_cand_user_status_created",
+  "measurement_protocol": {
+    "executions_per_round": 10
+  },
+  "calibration": {
+    "mode": "标定（B→C 交替 20 轮，统计按侧独立计算）",
+    "baseline": {
+      "name": "baseline",
+      "rounds": 20,
+      "raw_ms": [
+        147.21098,
+        146.18515,
+        148.09538,
+        146.36396,
+        145.65748,
+        148.33532,
+        147.00693,
+        149.18722,
+        149.61752,
+        143.99324,
+        145.98093,
+        147.46558,
+        146.65166,
+        146.12516,
+        145.73843,
+        148.45755,
+        145.0703,
+        144.70693,
+        146.37667,
+        147.35452
+      ],
+      "median_ms": 146.514165,
+      "scaled_mad_ms": 1.258015,
+      "noise_ratio": 0.00858630290115635
+    },
+    "candidate": {
+      "name": "candidate",
+      "rounds": 20,
+      "raw_ms": [
+        2.93913,
+        2.56085,
+        2.64685,
+        2.66358,
+        3.01895,
+        4.1169,
+        2.58476,
+        2.7865,
+        2.6702,
+        2.92441,
+        2.61285,
+        2.58852,
+        2.62102,
+        3.37855,
+        2.54109,
+        2.87665,
+        2.96679,
+        2.37733,
+        2.56656,
+        2.54072
+      ],
+      "median_ms": 2.655215,
+      "scaled_mad_ms": 0.169476,
+      "noise_ratio": 0.0638275996482394
+    }
+  },
+  "admission": {
+    "eligible_for_performance_claim": false,
+    "evidence_level": "L1",
+    "rejection_reasons": [
+      {
+        "code": "no_measurement_rounds",
+        "description": "只做了标定，未进行正式测量"
+      }
+    ],
+    "admission_thresholds": {
+      "noise_ratio_limit": 0.1,
+      "significance_multiplier": 2
+    }
+  }
+}

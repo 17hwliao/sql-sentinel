@@ -232,3 +232,19 @@ go build ./... && go vet ./... && go test -count=1 ./...
 
 已有的 `validation_result.json` 与 `calibration-1.json` 是历史原始实验记录，不回填新增字段；
 重新运行 `bench` 生成的新报告才会包含 `admission` 块。
+
+### 批量轮次实验（N=10）
+
+为降低极快查询被调度抖动主导的风险，`bench` 支持
+`--executions-per-round N`：每个样本连续完整执行 N 次同一 prepared SQL，
+再以 `batch_elapsed / N` 记录单次折算耗时；报告的
+`measurement_protocol.executions_per_round` 会记录这一口径。
+
+在同一份 100 万行数据、相同快照与候选索引上，N=1 的 candidate 标定噪声为 16.57%；
+N=10 的两次独立 20 轮标定分别为 6.38% 与 **10.19%**（baseline 为 0.86% 与 1.63%）。
+N=10 正式测量内部标定为 baseline 2.34%、candidate 9.62%，测量中位数为
+148.433ms → 2.634ms，单次报告的方向判定为 `Better`。
+
+但是阶段协议要求两次独立标定都不超过 10%，第二次未通过。因此本批实验的**整体证据仍为 L1**，
+不得据此声称性能收益。`batched-n10-validation.json` 中的 L2 只基于它自身那一次标定，
+尚未表达跨报告的稳定性要求；后续应把“多次运行的系列准入”设计成独立功能，而不是选择性忽略失败报告。

@@ -79,6 +79,7 @@ func runBench(args []string) error {
 	calibrate := fs.Int("calibrate", 20, "每侧独立标定轮数")
 	rounds := fs.Int("rounds", 5, "正式测量轮数（每侧）；0 表示只标定不判定")
 	warmup := fs.Int("warmup", 3, "每侧预热轮数，结果丢弃")
+	executionsPerRound := fs.Int("executions-per-round", 1, "每轮完整执行 SQL 的次数，计时后折算为单次耗时")
 	chunk := fs.Int("chunk", snapshot.DefaultChunk, "门禁重算快照时的分块大小")
 	seed := fs.Uint64("seed", 42, "数据集种子，仅记入报告的复现信息")
 	out := fs.String("out", "validation_result.json", "JSON 报告输出路径")
@@ -88,8 +89,8 @@ func runBench(args []string) error {
 	if *calibrate < 2 {
 		return fmt.Errorf("--calibrate 至少 2 轮才能算出离散程度，收到 %d", *calibrate)
 	}
-	if *rounds < 0 || *warmup < 0 {
-		return fmt.Errorf("--rounds / --warmup 不能为负")
+	if *rounds < 0 || *warmup < 0 || *executionsPerRound <= 0 {
+		return fmt.Errorf("--rounds / --warmup 不能为负，--executions-per-round 必须为正数")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
@@ -133,7 +134,7 @@ func runBench(args []string) error {
 		defer s.Close()
 		sessions[name] = s
 
-		if err := s.Warmup(ctx, *warmup); err != nil {
+		if err := s.Warmup(ctx, *warmup, *executionsPerRound); err != nil {
 			return fmt.Errorf("[%s] %w", name, err)
 		}
 	}
@@ -150,7 +151,7 @@ func runBench(args []string) error {
 	}
 	for i := 0; i < *calibrate; i++ {
 		for _, name := range []string{"baseline", "candidate"} {
-			d, err := sessions[name].Once(ctx)
+			d, err := sessions[name].Once(ctx, *executionsPerRound)
 			if err != nil {
 				return fmt.Errorf("[%s] 标定第 %d 轮失败: %w", name, i+1, err)
 			}
@@ -171,7 +172,7 @@ func runBench(args []string) error {
 	}
 	for i := 0; i < *rounds; i++ {
 		for _, name := range []string{"baseline", "candidate"} {
-			d, err := sessions[name].Once(ctx)
+			d, err := sessions[name].Once(ctx, *executionsPerRound)
 			if err != nil {
 				return fmt.Errorf("[%s] 第 %d 轮测量失败: %w", name, i+1, err)
 			}
@@ -183,7 +184,7 @@ func runBench(args []string) error {
 	}
 
 	// ---- 组装唯一的结果对象 ----
-	res := buildResult(*seed, mysqlVersion, gate, qc, calRaw, measRaw, *rounds)
+	res := buildResult(*seed, mysqlVersion, gate, qc, calRaw, measRaw, *rounds, *executionsPerRound)
 
 	f, err := os.Create(*out)
 	if err != nil {
@@ -210,6 +211,7 @@ func buildResult(
 	qc measure.QueryCase,
 	calRaw, measRaw map[string][]time.Duration,
 	rounds int,
+	executionsPerRound int,
 ) report.Result {
 	calB := measure.Summarize("baseline", calRaw["baseline"])
 	calC := measure.Summarize("candidate", calRaw["candidate"])
@@ -240,8 +242,9 @@ func buildResult(
 			Rows:   gate.Rows(),
 			Match:  true, // 门禁不通过时不会走到这里
 		},
-		Case:           report.CaseInfo{Name: qc.Name, SQL: qc.SQL, Args: args},
-		CandidateIndex: dataset.CandidateIndexName,
+		Case:                report.CaseInfo{Name: qc.Name, SQL: qc.SQL, Args: args},
+		CandidateIndex:      dataset.CandidateIndexName,
+		MeasurementProtocol: report.MeasurementProtocol{ExecutionsPerRound: executionsPerRound},
 		Calibration: report.Phase{
 			Mode:      fmt.Sprintf("标定（B→C 交替 %d 轮，统计按侧独立计算）", len(calRaw["baseline"])),
 			Baseline:  report.NewSide(calB, calRaw["baseline"]),

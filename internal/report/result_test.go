@@ -16,11 +16,31 @@ func noisySide(name string, ratio float64) measure.SideStats {
 // build 用给定噪声与判定构造完整报告，模拟「噪声超标 + Better」的关键组合。
 func build(baseNoise, candNoise float64, verdict measure.Verdict) Result {
 	d := measure.Decision{Verdict: verdict}
-	res := Result{GeneratedAt: "t"}
+	res := Result{GeneratedAt: "t", MeasurementProtocol: MeasurementProtocol{ExecutionsPerRound: 1}}
 	res.Admission = NewAdmission(measure.Admit(
 		noisySide("baseline", baseNoise),
 		noisySide("candidate", candNoise), &d))
 	return res
+}
+
+// 风险：报告只保留折算后的 raw_ms，却不记录每轮执行次数，消费者会误读时间口径。
+func TestResultJSON_RecordsExecutionsPerRound(t *testing.T) {
+	var b bytes.Buffer
+	res := Result{GeneratedAt: "t", MeasurementProtocol: MeasurementProtocol{ExecutionsPerRound: 10}}
+	if err := WriteJSON(&b, res); err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		Protocol struct {
+			ExecutionsPerRound int `json:"executions_per_round"`
+		} `json:"measurement_protocol"`
+	}
+	if err := json.Unmarshal(b.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw.Protocol.ExecutionsPerRound != 10 {
+		t.Fatalf("executions_per_round=%d, want 10", raw.Protocol.ExecutionsPerRound)
+	}
 }
 
 // 验收条件 1：JSON 必须同时表达 Better 与不可声称收益 —— 两个字段独立。
@@ -88,7 +108,7 @@ func TestSummary_SeparatesDirectionAndEligibility(t *testing.T) {
 	WriteSummary(&b, build(0.0421, 0.1302, measure.Better))
 	out := b.String()
 
-	for _, want := range []string{"方向性结果", "允许声称性能收益", "candidate_noise_ratio_exceeds_limit"} {
+	for _, want := range []string{"方向性结果", "允许声称性能收益", "candidate_noise_ratio_exceeds_limit", "每轮完整执行 1 次"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("摘要缺少 %q\n输出:\n%s", want, out)
 		}

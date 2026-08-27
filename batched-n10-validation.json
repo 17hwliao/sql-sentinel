@@ -1,0 +1,145 @@
+{
+  "generated_at": "2026-08-27T11:24:32Z",
+  "env": {
+    "os": "windows",
+    "arch": "amd64",
+    "go_version": "go1.26.3",
+    "mysql_version": "8.4.11"
+  },
+  "dataset": {
+    "seed": 42,
+    "rows": 1000000,
+    "dataset_version": "daf8a3324856",
+    "schema_version": "orders-v1",
+    "generator_version": "gen-v1",
+    "distribution_version": "dist-v1"
+  },
+  "snapshot": {
+    "digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",
+    "rows": 1000000,
+    "match": true
+  },
+  "case": {
+    "name": "hot_user_paid_recent_desc",
+    "sql": "SELECT id, amount_cents, created_at\nFROM orders\nWHERE user_id = ? AND status = ? AND created_at \u003e= ?\nORDER BY created_at DESC\nLIMIT 20",
+    "args": [
+      "1",
+      "paid",
+      "2024-01-01 02:00:00 +0000 UTC"
+    ]
+  },
+  "candidate_index": "idx_cand_user_status_created",
+  "measurement_protocol": {
+    "executions_per_round": 10
+  },
+  "calibration": {
+    "mode": "标定（B→C 交替 20 轮，统计按侧独立计算）",
+    "baseline": {
+      "name": "baseline",
+      "rounds": 20,
+      "raw_ms": [
+        145.37892,
+        150.04728,
+        156.37372,
+        146.01228,
+        153.31981,
+        146.76468,
+        153.33327,
+        150.44768,
+        147.26263,
+        146.42106,
+        151.53353,
+        145.70763,
+        148.39778,
+        149.31876,
+        150.30298,
+        151.93998,
+        143.85009,
+        146.08743,
+        145.37439,
+        146.13225
+      ],
+      "median_ms": 147.830205,
+      "scaled_mad_ms": 3.460655,
+      "noise_ratio": 0.023409661104102506
+    },
+    "candidate": {
+      "name": "candidate",
+      "rounds": 20,
+      "raw_ms": [
+        2.97753,
+        2.61307,
+        2.95742,
+        3.24503,
+        2.77472,
+        2.69395,
+        4.45983,
+        2.69502,
+        3.1282,
+        3.36724,
+        2.66548,
+        2.71947,
+        3.30065,
+        2.38389,
+        2.8406,
+        2.88282,
+        2.91151,
+        2.49908,
+        2.48324,
+        2.42319
+      ],
+      "median_ms": 2.80766,
+      "scaled_mad_ms": 0.270174,
+      "noise_ratio": 0.09622746343930533
+    }
+  },
+  "measurement": {
+    "mode": "正式测量（B→C 交替 5 轮）",
+    "baseline": {
+      "name": "baseline",
+      "rounds": 5,
+      "raw_ms": [
+        149.08671,
+        148.11972,
+        156.20383,
+        148.4332,
+        148.23978
+      ],
+      "median_ms": 148.4332,
+      "scaled_mad_ms": 0.464765,
+      "noise_ratio": 0.003131139125209185
+    },
+    "candidate": {
+      "name": "candidate",
+      "rounds": 5,
+      "raw_ms": [
+        2.50562,
+        2.55282,
+        2.77137,
+        2.79996,
+        2.63374
+      ],
+      "median_ms": 2.63374,
+      "scaled_mad_ms": 0.18995,
+      "noise_ratio": 0.07212177359952007
+    }
+  },
+  "verdict": {
+    "max_noise_ratio": 0.09622746343930533,
+    "significance_multiplier": 2,
+    "threshold_ratio": 0.19245492687861065,
+    "threshold_from": "candidate",
+    "relative_delta": -0.9822563954694772,
+    "verdict": "Better"
+  },
+  "admission": {
+    "direction_verdict": "Better",
+    "eligible_for_performance_claim": true,
+    "evidence_level": "L2",
+    "rejection_reasons": [],
+    "admission_thresholds": {
+      "noise_ratio_limit": 0.1,
+      "significance_multiplier": 2
+    }
+  }
+}

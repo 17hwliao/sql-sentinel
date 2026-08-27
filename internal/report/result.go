@@ -97,15 +97,22 @@ type EnvInfo struct {
 	MySQL     string `json:"mysql_version"`
 }
 
+// MeasurementProtocol 记录样本如何采集。raw_ms 是按本协议折算出的单次耗时，
+// 因此消费者必须同时读取 executions_per_round，不能把批量墙钟时间误当成单条 SQL 延迟。
+type MeasurementProtocol struct {
+	ExecutionsPerRound int `json:"executions_per_round"`
+}
+
 // Result 是一次 bench 的完整结果，也是**唯一**的事实来源。
 // JSON 与终端摘要都只读本对象，任何一方自己重算统计量都会导致两者悄悄不一致。
 type Result struct {
-	GeneratedAt    string       `json:"generated_at"`
-	Env            EnvInfo      `json:"env"`
-	Dataset        DatasetInfo  `json:"dataset"`
-	Snapshot       SnapshotInfo `json:"snapshot"`
-	Case           CaseInfo     `json:"case"`
-	CandidateIndex string       `json:"candidate_index"`
+	GeneratedAt         string              `json:"generated_at"`
+	Env                 EnvInfo             `json:"env"`
+	Dataset             DatasetInfo         `json:"dataset"`
+	Snapshot            SnapshotInfo        `json:"snapshot"`
+	Case                CaseInfo            `json:"case"`
+	CandidateIndex      string              `json:"candidate_index"`
+	MeasurementProtocol MeasurementProtocol `json:"measurement_protocol"`
 
 	Calibration Phase  `json:"calibration"`
 	Measurement *Phase `json:"measurement,omitempty"`
@@ -194,6 +201,8 @@ func WriteSummary(w io.Writer, r Result) {
 		r.Snapshot.Rows, shortHex(r.Snapshot.Digest), r.Snapshot.Match)
 	fmt.Fprintf(w, "Case       %s\n", r.Case.Name)
 	fmt.Fprintf(w, "候选索引   %s\n", r.CandidateIndex)
+	fmt.Fprintf(w, "测量协议   每轮完整执行 %d 次；raw_ms 为 batch_elapsed / %d\n",
+		r.MeasurementProtocol.ExecutionsPerRound, r.MeasurementProtocol.ExecutionsPerRound)
 
 	writePhase(w, r.Calibration)
 	if r.Measurement != nil {
