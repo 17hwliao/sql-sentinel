@@ -1,0 +1,133 @@
+{
+  "generated_at": "2026-08-27T13:12:43Z",
+  "evidence_level": "L1",
+  "eligible_for_performance_claim": false,
+  "mysql_version": "8.4.11",
+  "snapshot": {
+    "digest": "5f2ed9465c96fccc45f288e102cffd9c49000f43b03fc12f0c839d1dc1a66fbd",
+    "rows": 1000000
+  },
+  "sql_input": {
+    "sql": "SELECT id, amount_cents\nFROM orders\nWHERE status = 'paid'\nORDER BY amount_cents DESC\nLIMIT 20;\n",
+    "signals": []
+  },
+  "candidate_index": {
+    "table": "orders",
+    "name": "idx_cand_status_amount",
+    "ddl": "CREATE INDEX `idx_cand_status_amount` ON `orders` (`status` ASC, `amount_cents` DESC)",
+    "created": false
+  },
+  "baseline": {
+    "raw": {
+      "query_block": {
+        "select_id": 1,
+        "cost_info": {
+          "query_cost": "100982.00"
+        },
+        "ordering_operation": {
+          "using_filesort": true,
+          "table": {
+            "table_name": "orders",
+            "access_type": "ALL",
+            "rows_examined_per_scan": 992595,
+            "rows_produced_per_join": 99259,
+            "filtered": "10.00",
+            "cost_info": {
+              "read_cost": "91056.05",
+              "eval_cost": "9925.95",
+              "prefix_cost": "100982.00",
+              "data_read_per_join": "131M"
+            },
+            "used_columns": [
+              "id",
+              "status",
+              "amount_cents"
+            ],
+            "attached_condition": "(`sentinel`.`orders`.`status` = 'paid')"
+          }
+        }
+      }
+    },
+    "summary": {
+      "tables": [
+        {
+          "table_name": "orders",
+          "access_type": "ALL",
+          "rows_examined_per_scan": 992595,
+          "using_index": false
+        }
+      ],
+      "uses_filesort": true
+    }
+  },
+  "candidate": {
+    "raw": {
+      "query_block": {
+        "select_id": 1,
+        "cost_info": {
+          "query_cost": "54649.98"
+        },
+        "ordering_operation": {
+          "using_filesort": false,
+          "table": {
+            "table_name": "orders",
+            "access_type": "ref",
+            "possible_keys": [
+              "idx_cand_status_amount"
+            ],
+            "key": "idx_cand_status_amount",
+            "used_key_parts": [
+              "status"
+            ],
+            "key_length": "66",
+            "ref": [
+              "const"
+            ],
+            "rows_examined_per_scan": 496809,
+            "rows_produced_per_join": 496809,
+            "filtered": "100.00",
+            "using_index": true,
+            "cost_info": {
+              "read_cost": "4969.08",
+              "eval_cost": "49680.90",
+              "prefix_cost": "54649.98",
+              "data_read_per_join": "655M"
+            },
+            "used_columns": [
+              "id",
+              "status",
+              "amount_cents"
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "tables": [
+        {
+          "table_name": "orders",
+          "access_type": "ref",
+          "possible_keys": [
+            "idx_cand_status_amount"
+          ],
+          "key": "idx_cand_status_amount",
+          "rows_examined_per_scan": 496809,
+          "using_index": true
+        }
+      ],
+      "uses_filesort": false
+    }
+  },
+  "difference": {
+    "baseline_uses_filesort": true,
+    "candidate_uses_filesort": false,
+    "filesort_changed": true,
+    "baseline_keys": [],
+    "candidate_keys": [
+      "idx_cand_status_amount"
+    ],
+    "candidate_only_keys": [
+      "idx_cand_status_amount"
+    ]
+  }
+}

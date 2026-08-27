@@ -328,3 +328,23 @@ go run ./cmd/sentinel candidate-explain \
 输出报告包含快照、MySQL 版本、L0 静态信号、确定性候选 DDL、索引创建状态和 EXPLAIN JSON。它固定标为
 L1，`eligible_for_performance_claim=false`：计划显示了什么并不等于该索引有性能收益；要得出收益结论仍须执行
 受控 A/B 测量并通过既有的准入门槛。
+
+## 17. Baseline/Candidate EXPLAIN 对照
+
+当需要把“candidate 的计划是什么”扩展为“它与没有候选索引的 baseline 有何计划差异”时，运行：
+
+```bash
+go run ./cmd/sentinel explain-compare \
+  --sql examples/candidate-explain-query.sql \
+  --candidate examples/candidate-explain-index.json \
+  --out explain_comparison_report.json
+```
+
+该命令先执行与 `candidate-explain` 相同的 SQL、CandidateSpec、MySQL 版本、快照、candidate schema
+与索引定义门禁。随后 baseline 和 candidate 都只运行 `EXPLAIN FORMAT=JSON`，候选侧可创建或复用受限索引并
+`ANALYZE TABLE`；baseline 永不接收 DDL，原 SQL 也不会执行。
+
+对照报告同时保留两侧原始 JSON，并只提取可稳定陈述的访问事实：表访问方式、候选/实际索引、预计扫描行数、
+覆盖索引与 filesort 状态。示例实测中 baseline 为全表扫描且 `uses_filesort=true`，candidate 使用
+`idx_cand_status_amount`、`uses_filesort=false`。报告固定为 L1 且
+`eligible_for_performance_claim=false`；预计扫描行数、cost 或 filesort 差异都是计划证据，不是性能收益结论。
