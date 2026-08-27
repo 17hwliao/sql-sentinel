@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"time"
@@ -235,7 +236,7 @@ func uniqueKeys(tables []TableAccess) []string {
 	return out
 }
 
-func WriteJSON(w interface{ Write([]byte) (int, error) }, r Report) error {
+func WriteJSON(w io.Writer, r Report) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -137,7 +138,7 @@ func (g Gate) Run(ctx context.Context, p Prepared) (Report, error) {
 }
 
 // WriteJSON persists the one report object assembled by Run.
-func WriteJSON(w interface{ Write([]byte) (int, error) }, r Report) error {
+func WriteJSON(w io.Writer, r Report) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)

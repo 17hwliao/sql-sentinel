@@ -169,7 +169,7 @@ func comparableEstimatedRows(baseline, candidate plancompare.Summary) (int64, in
 	return bTotal, cTotal, true
 }
 
-func WriteJSON(w interface{ Write([]byte) (int, error) }, r Report) error {
+func WriteJSON(w io.Writer, r Report) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)

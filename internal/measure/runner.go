@@ -56,13 +56,6 @@ func DefaultCase() QueryCase {
 	}
 }
 
-// RunOptions 控制单侧测量的预热与采样轮数。
-type RunOptions struct {
-	Warmup             int // 预热轮数，结果全部丢弃
-	Rounds             int // 计入统计的轮数
-	ExecutionsPerRound int // 每轮完整执行次数；0 表示兼容旧调用，按 1 处理
-}
-
 // Session 持有一条已预处理的语句，支持逐轮触发测量。
 // 交替测量（B→C→B→C）必须两侧同时保持会话，否则每轮重新预处理会把
 // parse/plan 开销混进延迟，且两侧的预处理时机不对称。
@@ -99,43 +92,6 @@ func (s *Session) Once(ctx context.Context, executionsPerRound int) (time.Durati
 	return executeRound(ctx, executionsPerRound, time.Now, func(ctx context.Context) error {
 		return execOnce(ctx, s.stmt, s.c.Args)
 	})
-}
-
-// Collect 连续测量 n 轮。用于单侧独立标定 —— 标定不需要交替，
-// 它衡量的是该侧自身的离散程度。
-func (s *Session) Collect(ctx context.Context, n, executionsPerRound int) ([]time.Duration, error) {
-	out := make([]time.Duration, 0, n)
-	for i := 0; i < n; i++ {
-		d, err := s.Once(ctx, executionsPerRound)
-		if err != nil {
-			return nil, fmt.Errorf("第 %d 轮失败: %w", i+1, err)
-		}
-		out = append(out, d)
-	}
-	return out, nil
-}
-
-// Run 在单个实例上测量一个 Query Case，返回每轮延迟。
-// 只做采集，不做统计与判定；单侧可独立调用，便于两侧分别标定。
-func Run(ctx context.Context, db *sql.DB, c QueryCase, opt RunOptions) ([]time.Duration, error) {
-	if opt.Rounds < 0 || opt.Warmup < 0 || opt.ExecutionsPerRound < 0 {
-		return nil, fmt.Errorf("轮数不能为负: warmup=%d rounds=%d", opt.Warmup, opt.Rounds)
-	}
-	executionsPerRound := opt.ExecutionsPerRound
-	if executionsPerRound == 0 {
-		executionsPerRound = 1
-	}
-
-	s, err := NewSession(ctx, db, c)
-	if err != nil {
-		return nil, err
-	}
-	defer s.Close()
-
-	if err := s.Warmup(ctx, opt.Warmup, executionsPerRound); err != nil {
-		return nil, err
-	}
-	return s.Collect(ctx, opt.Rounds, executionsPerRound)
 }
 
 // execOnce 执行一次并把结果集完整读到 EOF。
