@@ -252,6 +252,7 @@ func buildResult(
 	// rounds 为 0 时只有标定，没有测量就没有结论 ——
 	// 不能给一个默认的 NotSignificant 冒充结果。
 	if rounds == 0 {
+		res.Admission = report.NewAdmission(measure.Admit(calB, calC, nil))
 		return res
 	}
 
@@ -274,5 +275,8 @@ func buildResult(
 		Candidate: report.NewSide(mC, measRaw["candidate"]),
 	}
 	res.Verdict = &v
+
+	// 证据准入与方向判定共用标定噪声作为基数，两个结论才不会各说各话。
+	res.Admission = report.NewAdmission(measure.Admit(calB, calC, &decision))
 	return res
 }

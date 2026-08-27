@@ -222,3 +222,13 @@ go build ./... && go vet ./... && go test -count=1 ./...
 超过阶段 0 约定的 10% 门槛。噪声比是相对量，查询越快越难达标。
 因此当前环境**不足以据此声称读收益**，详见
 [specs/001-trusted-ab-measurement/plan.md](specs/001-trusted-ab-measurement/plan.md) 的 Spike 记录。
+
+### 报告消费规则
+
+`verdict=Better` 只表示本次统计测量的方向性结果，**不等于**已经取得性能收益证据。
+任何人、脚本或后续 Agent 只有在报告中读取到
+`admission.eligible_for_performance_claim=true` 时，才可以将该报告用于声称性能收益；
+否则必须以 `admission.evidence_level` 和 `admission.rejection_reasons` 说明证据等级与拒绝原因。
+
+已有的 `validation_result.json` 与 `calibration-1.json` 是历史原始实验记录，不回填新增字段；
+重新运行 `bench` 生成的新报告才会包含 `admission` 块。
