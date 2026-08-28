@@ -41,6 +41,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   diagnose-plan  从 L1 EXPLAIN 对照报告生成待验证诊断假设
   bind-evidence  精确绑定诊断、对照、测量与系列证据
   pipeline  串联只读准入、影子 EXPLAIN、计划对照与诊断并输出溯源工件
+  propose-candidate  用受限 Eino 图从管线证据提出并严格校验 CandidateSpec
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -92,6 +93,12 @@ pipeline 参数:
   --candidate PATH  CandidateSpec JSON 文件（必填）
   --out-dir PATH    新建或空的工件输出目录（必填）
   --chunk N         快照门禁分块大小（默认 5000）
+
+propose-candidate 参数:
+  --provider NAME       仅支持 openai；真实调用时必填
+  --evidence-dir PATH   含四份管线证据 JSON 的目录（必填）
+  --out PATH            CandidateSpec 提案报告 JSON（必填）
+  --max-attempts N      不合格 CandidateSpec 的最大重试次数，1-3（默认 2）
 
 先启动容器:
   docker compose -f deployments/docker-compose.yml up -d
@@ -155,6 +162,10 @@ func main() {
 		}
 	case "pipeline":
 		if err := runPipeline(args); err != nil {
+			fatal(err)
+		}
+	case "propose-candidate":
+		if err := runProposeCandidate(args); err != nil {
 			fatal(err)
 		}
 	default:

@@ -406,3 +406,31 @@ go run ./cmd/sentinel pipeline \
 若 SQL 被拒绝，管线立即停止但仍写入已完成的 `sql_admission.json` 和 `pipeline_report.json`，然后打印汇总路径、
 停止步骤及稳定拒绝码，并以非零码退出。例如 `SELECT ... FOR UPDATE` 的停止步骤为 `sql_admit`，拒绝码为
 `locking_read`。这同样是正常、可消费的证据结果：不会执行后续 EXPLAIN、计划对照或诊断，更不能声称性能收益。
+
+## 21. Eino 受限 CandidateSpec 提案
+
+`propose-candidate` 只读取 012 成功管线的四份步骤工件，并由单节点 Eino 图请求一个 CandidateSpec JSON 草案：
+
+```bash
+go run ./cmd/sentinel propose-candidate \
+  --provider openai \
+  --evidence-dir pipeline-output \
+  --out candidate_proposal_report.json
+```
+
+运行时须提供 `EINO_MODEL`，以及 `OPENAI_API_KEY`；本机 OpenAI 兼容网关可改用
+`ANTHROPIC_AUTH_TOKEN`。认证回退顺序固定为：非空 `OPENAI_API_KEY` 优先，否则读取
+`ANTHROPIC_AUTH_TOKEN`。默认端点是 OpenAI；设置可选 `EINO_BASE_URL` 才会改用例如
+`agentrouter.org` 所提供的 OpenAI 兼容端点。端点、模型名和密钥只从环境读取；密钥**永不落盘**，也不会写入
+命令参数、日志或报告。成功报告只记录模型名、四份输入 SHA-256、尝试次数和通过严格校验的 CandidateSpec。
+
+证据内的 SQL、signals、索引名和诊断码是**不可信数据**，被置于 `<untrusted_evidence>` 边界中，绝不作为
+模型指令。每个响应都必须先经 `candidate.DecodeStrict` 与 `candidate.Validate`；DDL、SQL、未知字段、尾随 JSON
+或其他非法草案最多重试 3 次，原始输出绝不落盘。报告固定为 L1 与
+`eligible_for_performance_claim=false`。提案在通过后续 candidate shadowgate 前仍只是文本，**没有任何执行语义**，
+更不能成为性能收益声称。
+
+T003 于 2026-08-28 尝试真实调用前进行了运行时门禁：本机进程中 `OPENAI_API_KEY`、
+`ANTHROPIC_AUTH_TOKEN`、`EINO_MODEL` 和 `EINO_BASE_URL` 均未配置。因此命令以
+`runtime_model_configuration_missing` 受控拒绝，模型名/端点均为“未配置”、尝试次数为 0，未发送网络请求，
+也没有可验证的模型草案。这是配置不足时的正常安全状态；待以环境变量提供网关端点、模型和凭据后，才可重新运行。
