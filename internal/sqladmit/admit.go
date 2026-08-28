@@ -10,6 +10,7 @@ type Result struct {
 	EvidenceLevel string   `json:"evidence_level"`
 	ReasonCode    string   `json:"reason_code,omitempty"`
 	Signals       []string `json:"signals"`
+	InputSHA256   string   `json:"input_sha256,omitempty"`
 }
 
 func Admit(sql string) Result {

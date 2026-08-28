@@ -92,6 +92,8 @@ type Report struct {
 	SQL                         SQLInput        `json:"sql_input"`
 	Candidate                   CandidateIndex  `json:"candidate_index"`
 	ExplainJSON                 json.RawMessage `json:"explain_json"`
+	InputSQLSHA256              string          `json:"input_sql_sha256,omitempty"`
+	InputCandidateSpecSHA256    string          `json:"input_candidate_spec_sha256,omitempty"`
 }
 
 // Run verifies the common environment, applies only the constrained candidate

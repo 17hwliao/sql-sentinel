@@ -80,6 +80,8 @@ type Report struct {
 	Baseline                    Plan           `json:"baseline"`
 	Candidate                   Plan           `json:"candidate"`
 	Difference                  Difference     `json:"difference"`
+	InputCandidateExplainSHA256 string         `json:"input_candidate_explain_sha256,omitempty"`
+	InputBaselineExplainSHA256  string         `json:"input_baseline_explain_sha256,omitempty"`
 }
 
 func BuildReport(meta Metadata, baselineRaw, candidateRaw []byte) (Report, error) {

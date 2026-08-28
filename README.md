@@ -386,3 +386,23 @@ go run ./cmd/sentinel bind-evidence \
 `eligible_for_performance_claim=true` / `L2` 时继承该资格；命令本身不会重新测量或升级证据。
 因此 `binding_complete=false`、L1 与稳定的 `rejection_reasons` 是正常的证据状态，**不是 bug**：它说明这些
 报告不能被安全地关联来声称性能收益。未知字段、损坏 JSON 或尾随 JSON 值会被拒绝，而不是宽松解析。
+
+## 20. 端到端只读证据管线
+
+`pipeline` 把只读 SQL 准入、candidate shadow EXPLAIN、baseline/candidate 计划对照和受限诊断串成一次运行：
+
+```bash
+go run ./cmd/sentinel pipeline \
+  --sql examples/candidate-explain-query.sql \
+  --candidate examples/candidate-explain-index.json \
+  --out-dir pipeline-output
+```
+
+`--out-dir` 必须不存在或为空。成功时会写入 `sql_admission.json`、
+`candidate_explain_report.json`、`explain_comparison_report.json`、
+`diagnostic_hypotheses.json` 和 `pipeline_report.json`。前四份步骤工件带直接输入 SHA-256；汇总记录四个已完成步骤、
+每份工件的 SHA-256，以及自身的规范化 SHA-256（将该自摘要字段置空后计算，避免不诚实的自引用哈希）。
+
+若 SQL 被拒绝，管线立即停止但仍写入已完成的 `sql_admission.json` 和 `pipeline_report.json`，然后打印汇总路径、
+停止步骤及稳定拒绝码，并以非零码退出。例如 `SELECT ... FOR UPDATE` 的停止步骤为 `sql_admit`，拒绝码为
+`locking_read`。这同样是正常、可消费的证据结果：不会执行后续 EXPLAIN、计划对照或诊断，更不能声称性能收益。
