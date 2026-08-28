@@ -43,30 +43,7 @@ func runPipeline(args []string) error {
 		SQL:           sqlRaw,
 		CandidateSpec: candidateRaw,
 		OutputDir:     *outDir,
-		RunExplain: func(ctx context.Context, sql string, rawSpec []byte) (shadowgate.Report, []byte, error) {
-			spec, err := candidate.DecodeStrict(bytes.NewReader(rawSpec))
-			if err != nil {
-				return shadowgate.Report{}, nil, err
-			}
-			prepared, err := shadowgate.Prepare(sql, spec)
-			if err != nil {
-				return shadowgate.Report{}, nil, err
-			}
-			dbs, closeAll, err := openBoth(ctx)
-			if err != nil {
-				return shadowgate.Report{}, nil, err
-			}
-			defer closeAll()
-			candidateReport, err := (shadowgate.Gate{Baseline: dbs["baseline"], Candidate: dbs["candidate"], Chunk: *chunk}).Run(ctx, prepared)
-			if err != nil {
-				return shadowgate.Report{}, nil, err
-			}
-			var baselineExplain string
-			if err := dbs["baseline"].QueryRowContext(ctx, "EXPLAIN FORMAT=JSON "+prepared.SQL).Scan(&baselineExplain); err != nil {
-				return shadowgate.Report{}, nil, fmt.Errorf("explain baseline SQL: %w", err)
-			}
-			return candidateReport, []byte(baselineExplain), nil
-		},
+		RunExplain:    pipelineExplainRunner(*chunk),
 	})
 	if err != nil {
 		if report.StoppedStep != "" {
@@ -80,4 +57,31 @@ func runPipeline(args []string) error {
 	}
 	fmt.Printf("pipeline report: %s (completed=%v, stopped=%s, performance claim eligible=%t)\n", *outDir, report.CompletedSteps, report.StoppedStep, report.EligibleForPerformanceClaim)
 	return nil
+}
+
+func pipelineExplainRunner(chunk int) pipeline.ExplainRunner {
+	return func(ctx context.Context, sql string, rawSpec []byte) (shadowgate.Report, []byte, error) {
+		spec, err := candidate.DecodeStrict(bytes.NewReader(rawSpec))
+		if err != nil {
+			return shadowgate.Report{}, nil, err
+		}
+		prepared, err := shadowgate.Prepare(sql, spec)
+		if err != nil {
+			return shadowgate.Report{}, nil, err
+		}
+		dbs, closeAll, err := openBoth(ctx)
+		if err != nil {
+			return shadowgate.Report{}, nil, err
+		}
+		defer closeAll()
+		candidateReport, err := (shadowgate.Gate{Baseline: dbs["baseline"], Candidate: dbs["candidate"], Chunk: chunk}).Run(ctx, prepared)
+		if err != nil {
+			return shadowgate.Report{}, nil, err
+		}
+		var baselineExplain string
+		if err := dbs["baseline"].QueryRowContext(ctx, "EXPLAIN FORMAT=JSON "+prepared.SQL).Scan(&baselineExplain); err != nil {
+			return shadowgate.Report{}, nil, fmt.Errorf("explain baseline SQL: %w", err)
+		}
+		return candidateReport, []byte(baselineExplain), nil
+	}
 }

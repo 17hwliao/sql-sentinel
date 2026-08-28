@@ -434,3 +434,32 @@ T003 于 2026-08-28 尝试真实调用前进行了运行时门禁：本机进程
 `ANTHROPIC_AUTH_TOKEN`、`EINO_MODEL` 和 `EINO_BASE_URL` 均未配置。因此命令以
 `runtime_model_configuration_missing` 受控拒绝，模型名/端点均为“未配置”、尝试次数为 0，未发送网络请求，
 也没有可验证的模型草案。这是配置不足时的正常安全状态；待以环境变量提供网关端点、模型和凭据后，才可重新运行。
+
+## 22. 本地 PR 评审 Webhook
+
+`webhook-serve` 是一个只用于本机模拟 delivery 的 HMAC 入口，**只能**监听 `127.0.0.1`，拒绝
+`0.0.0.0`、`localhost` 和其他地址；它不是 GitHub 集成，也不会发布远程评论。启动前须设置仅用于进程的
+`SQL_SENTINEL_WEBHOOK_SECRET`，并提供本地的严格 CandidateSpec：
+
+```powershell
+$env:SQL_SENTINEL_WEBHOOK_SECRET = '<local secret>'
+go run ./cmd/sentinel webhook-serve `
+  --listen 127.0.0.1:8080 `
+  --candidate examples/candidate-explain-index.json `
+  --out-dir webhook-deliveries
+```
+
+客户端把最小 JSON（`delivery_id`、`pr_number`、unified `diff`）原始 UTF-8 字节以 HMAC-SHA256 签名，置入
+`X-SQL-Sentinel-Signature: sha256=<hex>`。缺失/错误签名和超限 body 在 JSON 解码、SQL 提取、影子库调用或
+delivery 文件写入前只返回稳定拒绝码。只提取新增 `.sql` 行；每条文本先过 `sqladmit`，锁定读、多语句、零条或
+多条候选 SQL 会生成本地 `verification_unavailable` 评论，绝不进入影子库。
+
+每个有效 delivery 最多调用一次 012 `pipeline.Run`；服务默认最多同时验证 1 个（范围 1–4），满载立即返回
+HTTP 429 / `queue_full`，没有无界队列。delivery 输出包含 `comment.md` 与 `webhook_report.json`，管线工件位于其
+独立 `artifacts/` 子目录。评论转述真实的证据等级、资格字段、已完成步骤、拒绝码和 artifact SHA-256；影子库或
+门禁失败明确标为 `verification_unavailable`，没有证据时显示 `evidence_level=none`，不会伪造 L1 或“通过”。
+当前成功管线的资格仍固定为 `eligible_for_performance_claim=false`。
+
+2026-08-28 的本机模拟投递复用 `examples/candidate-explain-query.sql` 与
+`examples/candidate-explain-index.json`：HTTP 202，依序完成 `sql_admit`、`candidate_explain`、
+`plan_compare`、`diagnosis`，评论记录 5 项 artifact 摘要，结果为 L1/false；这是计划与诊断证据，不是性能收益。

@@ -42,6 +42,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   bind-evidence  精确绑定诊断、对照、测量与系列证据
   pipeline  串联只读准入、影子 EXPLAIN、计划对照与诊断并输出溯源工件
   propose-candidate  用受限 Eino 图从管线证据提出并严格校验 CandidateSpec
+  webhook-serve  仅监听本机的已签名模拟 PR 评审服务
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -99,6 +100,13 @@ propose-candidate 参数:
   --evidence-dir PATH   含四份管线证据 JSON 的目录（必填）
   --out PATH            CandidateSpec 提案报告 JSON（必填）
   --max-attempts N      不合格 CandidateSpec 的最大重试次数，1-3（默认 2）
+
+webhook-serve 参数:
+  --listen ADDR         仅允许 127.0.0.1 host:port（默认 127.0.0.1:8080）
+  --candidate PATH      服务器本地 CandidateSpec JSON（必填）
+  --out-dir PATH        delivery 评论与工件根目录（必填）
+  --max-concurrent N    同时影子验证数，1-4（默认 1）
+  --chunk N             快照门禁分块大小（默认 5000）
 
 先启动容器:
   docker compose -f deployments/docker-compose.yml up -d
@@ -166,6 +174,10 @@ func main() {
 		}
 	case "propose-candidate":
 		if err := runProposeCandidate(args); err != nil {
+			fatal(err)
+		}
+	case "webhook-serve":
+		if err := runWebhookServe(args); err != nil {
 			fatal(err)
 		}
 	default:
