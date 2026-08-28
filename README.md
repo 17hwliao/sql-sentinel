@@ -148,12 +148,24 @@ Go 校验器必须验证：库表字段是否存在、索引列数量与类型�
 
 ## 11. 验收与评测
 
-- 静态规则召回率：人工注入的已知坏味道被发现的比例；
-- 最优接近度：Agent 方案耗时 / 预定义候选方案中最优耗时；
-- 结果等价性：改写方案的语义校验通过率；
-- 验证通过率：候选方案在影子库实测优于基线的比例；
-- 安全性：非法 CandidateSpec、越权审批、Webhook 重放和超时降级测试；
-- 成本：单次分析耗时、工具轮数、Token 用量。
+最终机器可读快照见 [`evaluation_report.json`](evaluation_report.json)。它记录评测时的 Git SHA、UTC 时间、
+样例集 `dataset_version` 与 manifest SHA-256；当前快照是在有未提交 015 变更的工作树上生成，因此该事实也被
+显式记录，而不是假装它对应一个干净提交。
+
+| 维度 | 实测值 / 状态 | 诚实边界 |
+| --- | --- | --- |
+| 静态规则召回率 | **7/7（100%）**：4 个 signal、3 个拒绝码；样例集 `eval-sql-smells-v1` | 只评估人工维护的 7 个已知坏味道 SQL，不外推到真实 SQL 语料。 |
+| 验证通过率 | 方向性 `Better` 为 **1/1**：1,000,000 行、单一 `hot_user_paid_recent_desc` Case | candidate 标定噪声 **13.02%** 超过 10% 门槛；收益资格为 **L1/false**，因此证据合格率为 **0/1**，不得声称性能收益。 |
+| 安全性 | **已重跑并通过** 5 个固定包组：CandidateSpec 严格解码、Agent 注入、锁定读、webhook 签名/429/降级、pipeline 停止/部分证据 | 这是现有对抗测试清单，不等同生产渗透测试或真实 GitHub 重放演练。 |
+| 最优接近度 | **豁免** | 首版没有“LLM 提案 → A/B 验证 → 反馈迭代”的自动索引推荐闭环。 |
+| 结果等价性 | **范围外** | 项目没有 SQL 改写能力；不能把只读 SQL 准入或 EXPLAIN 当作改写后的结果等价性验证。 |
+| 成本 | **部分可测**：最终 smoke 的四步 wall-clock 为 sql_admit 0.602ms、candidate_explain 4030.042ms、plan_compare 1.801ms、diagnosis 0.515ms | 时序是一次运行的操作观察，不是基准结论。真实 LLM 尝试数为 0；Token 用量未埋点，明确豁免。 |
+
+最终本机 smoke 的操作记录：以 `examples/candidate-explain-query.sql` 和
+`examples/candidate-explain-index.json` 启动只监听 `127.0.0.1` 的 `webhook-serve`，用一次性 HMAC-SHA256
+签名的模拟 unified diff 投递到 `/webhook/pr`。实际返回 HTTP 202，依序完成 `sql_admit`、`candidate_explain`、
+`plan_compare`、`diagnosis`；评论与五项工件均落盘，四份步骤文件 SHA-256 已复算匹配，summary 使用
+`pipeline_report_with_own_sha256_blank` canonical 范围。该链路仍为 L1/false，不是性能收益结论。
 
 ## 12. 推荐目录
 

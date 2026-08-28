@@ -1,0 +1,170 @@
+{
+  "evidence_level": "L1",
+  "eligible_for_performance_claim": false,
+  "static_rules": {
+    "status": "measured",
+    "dataset_version": "eval-sql-smells-v1",
+    "manifest_sha256": "6ef4425694995094ff1682092c5c4b41ac55afcd81247a5fcd5b700b40649230",
+    "detected": 7,
+    "total": 7,
+    "recall": 1,
+    "cases": [
+      {
+        "id": "select_star",
+        "detected": true,
+        "signal": "select_star"
+      },
+      {
+        "id": "leading_wildcard_like",
+        "detected": true,
+        "signal": "leading_wildcard_like"
+      },
+      {
+        "id": "function_on_column",
+        "detected": true,
+        "signal": "function_on_probable_column"
+      },
+      {
+        "id": "locking_read",
+        "detected": true,
+        "rejection_code": "locking_read"
+      },
+      {
+        "id": "ddl",
+        "detected": true,
+        "rejection_code": "not_readonly_select"
+      },
+      {
+        "id": "multiple_statements",
+        "detected": true,
+        "rejection_code": "multiple_statements"
+      },
+      {
+        "id": "outfile",
+        "detected": true,
+        "rejection_code": "select_into_file"
+      }
+    ],
+    "scope": "curated known-smell SQL samples only; not a production SQL corpus"
+  },
+  "validation_pass_rate": {
+    "status": "measured",
+    "source_sha256": "dd984e2e0ff8bc139a5b0d20565f68227ee6642700544f5ac27ed9fe766d3267",
+    "rows": 1000000,
+    "dataset_version": "daf8a3324856",
+    "case_name": "hot_user_paid_recent_desc",
+    "direction_verdict": "Better",
+    "candidate_calibration_noise_ratio": 0.13021014776813866,
+    "evidence_level": "L1",
+    "eligible_for_performance_claim": false,
+    "limitation": "one historical query case; candidate calibration noise exceeds the 10% admission limit, so no performance claim is eligible"
+  },
+  "security": {
+    "status": "passed",
+    "checks": [
+      {
+        "name": "candidate_spec_strict_decode",
+        "package": "./internal/candidate/...",
+        "status": "passed"
+      },
+      {
+        "name": "agent_prompt_injection",
+        "package": "./internal/agentgraph/...",
+        "status": "passed"
+      },
+      {
+        "name": "readonly_sql_locking_read",
+        "package": "./internal/sqladmit/...",
+        "status": "passed"
+      },
+      {
+        "name": "webhook_signature_queue_and_degrade",
+        "package": "./internal/webhook/...",
+        "status": "passed"
+      },
+      {
+        "name": "pipeline_stop_and_partial_evidence",
+        "package": "./internal/pipeline/...",
+        "status": "passed"
+      }
+    ]
+  },
+  "cost": {
+    "status": "partially_measured",
+    "llm_real_attempts": 0,
+    "token_usage": {
+      "dimension": "token_usage",
+      "status": "waived",
+      "reason": "token usage is not instrumented"
+    },
+    "pipeline_timing": {
+      "status": "measured",
+      "source_sha256": "5bd0489d2a257ceb9e52a9715b7e01da1b772d94f4e1a694aee940caf8dcaef9",
+      "steps": [
+        {
+          "step": "sql_admit",
+          "wall_clock_ms": 0.6015
+        },
+        {
+          "step": "candidate_explain",
+          "wall_clock_ms": 4030.0423
+        },
+        {
+          "step": "plan_compare",
+          "wall_clock_ms": 1.8008
+        },
+        {
+          "step": "diagnosis",
+          "wall_clock_ms": 0.5147
+        }
+      ],
+      "artifacts": [
+        {
+          "step": "sql_admit",
+          "file": "sql_admission.json",
+          "sha256": "0940bf02e03714dc30ab72fc3ced9558d4f95a8cf4bb15282e6fe5612d7931ba"
+        },
+        {
+          "step": "candidate_explain",
+          "file": "candidate_explain_report.json",
+          "sha256": "4b73fe79d651192c0fa48904a6f439304fb3ea2149f91ce8bd34c4892896d3d7"
+        },
+        {
+          "step": "plan_compare",
+          "file": "explain_comparison_report.json",
+          "sha256": "43bfc9865115c1e0e1815daa28b446aa2ca6429bb78b893f0e8f302f3d43797a"
+        },
+        {
+          "step": "diagnosis",
+          "file": "diagnostic_hypotheses.json",
+          "sha256": "6732d99b1a83c58823b8c3cc43561450b3f825be418bcc5802d989354796a2a3"
+        },
+        {
+          "step": "pipeline_summary",
+          "file": "pipeline_report.json",
+          "sha256": "046cb8af61a2412f76c68795649c1ecb8ee097c99901a46c5b29ab33f20464c6",
+          "digest_scope": "pipeline_report_with_own_sha256_blank"
+        }
+      ]
+    }
+  },
+  "waivers": [
+    {
+      "dimension": "optimality_proximity",
+      "status": "waived",
+      "reason": "no proposal-to-A/B feedback iteration exists"
+    },
+    {
+      "dimension": "result_equivalence",
+      "status": "out_of_scope",
+      "reason": "this project has no SQL rewrite capability"
+    }
+  ],
+  "environment": {
+    "git_commit": "37a4a27f8cac24877dd9f073bfdde20c7e902c8d",
+    "evaluated_at": "2026-08-28T04:58:55Z",
+    "working_tree_dirty": true,
+    "sample_dataset_version": "eval-sql-smells-v1",
+    "sample_manifest_sha256": "6ef4425694995094ff1682092c5c4b41ac55afcd81247a5fcd5b700b40649230"
+  }
+}

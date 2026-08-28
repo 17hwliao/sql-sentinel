@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"sqlsentinel/internal/diagnosis"
 	"sqlsentinel/internal/plancompare"
@@ -42,15 +43,23 @@ type Reason struct {
 	Code string `json:"code"`
 }
 
+// StepDuration records wall-clock orchestration time, not a benchmark result.
+// It is emitted only for steps this run actually attempted.
+type StepDuration struct {
+	Step        string  `json:"step"`
+	WallClockMS float64 `json:"wall_clock_ms"`
+}
+
 // Report is the pipeline-level L1 boundary. It describes what did run, not a
 // performance outcome.
 type Report struct {
-	EvidenceLevel               string     `json:"evidence_level"`
-	EligibleForPerformanceClaim bool       `json:"eligible_for_performance_claim"`
-	CompletedSteps              []string   `json:"completed_steps"`
-	StoppedStep                 string     `json:"stopped_step,omitempty"`
-	RejectionReasons            []Reason   `json:"rejection_reasons"`
-	Artifacts                   []Artifact `json:"artifacts"`
+	EvidenceLevel               string         `json:"evidence_level"`
+	EligibleForPerformanceClaim bool           `json:"eligible_for_performance_claim"`
+	CompletedSteps              []string       `json:"completed_steps"`
+	StoppedStep                 string         `json:"stopped_step,omitempty"`
+	RejectionReasons            []Reason       `json:"rejection_reasons"`
+	Artifacts                   []Artifact     `json:"artifacts"`
+	StepDurations               []StepDuration `json:"step_durations_ms"`
 }
 
 // ExplainRunner performs the existing candidate-only gate and returns its
@@ -84,19 +93,24 @@ func Run(ctx context.Context, input Input) (Report, error) {
 		CompletedSteps:              []string{},
 		RejectionReasons:            []Reason{},
 		Artifacts:                   []Artifact{},
+		StepDurations:               []StepDuration{},
 	}
 
+	started := time.Now()
 	admission := sqladmit.Admit(string(input.SQL))
 	admission.InputSHA256 = digest(input.SQL)
 	if _, err := writeStage(input.OutputDir, AdmissionFile, admission, StepSQLAdmit, &report); err != nil {
 		return report, err
 	}
+	recordDuration(&report, StepSQLAdmit, started)
 	if !admission.Accepted {
 		return stop(input.OutputDir, report, StepSQLAdmit, admission.ReasonCode, nil)
 	}
 
+	started = time.Now()
 	candidateReport, baselineRaw, err := input.RunExplain(ctx, string(input.SQL), input.CandidateSpec)
 	if err != nil {
+		recordDuration(&report, StepCandidateExplain, started)
 		return stop(input.OutputDir, report, StepCandidateExplain, "candidate_explain_rejected", err)
 	}
 	candidateReport.InputSQLSHA256 = digest(input.SQL)
@@ -105,7 +119,9 @@ func Run(ctx context.Context, input Input) (Report, error) {
 	if err != nil {
 		return report, err
 	}
+	recordDuration(&report, StepCandidateExplain, started)
 
+	started = time.Now()
 	comparison, err := plancompare.BuildReport(plancompare.Metadata{
 		GeneratedAt:  candidateReport.GeneratedAt,
 		MySQLVersion: candidateReport.MySQLVersion,
@@ -117,6 +133,7 @@ func Run(ctx context.Context, input Input) (Report, error) {
 		},
 	}, baselineRaw, candidateReport.ExplainJSON)
 	if err != nil {
+		recordDuration(&report, StepPlanCompare, started)
 		return stop(input.OutputDir, report, StepPlanCompare, "plan_compare_rejected", err)
 	}
 	comparison.InputCandidateExplainSHA256 = digest(candidateBytes)
@@ -125,15 +142,25 @@ func Run(ctx context.Context, input Input) (Report, error) {
 	if err != nil {
 		return report, err
 	}
+	recordDuration(&report, StepPlanCompare, started)
 
+	started = time.Now()
 	diagnosisReport, err := diagnosis.Analyze(comparisonBytes)
 	if err != nil {
+		recordDuration(&report, StepDiagnosis, started)
 		return stop(input.OutputDir, report, StepDiagnosis, "diagnosis_rejected", err)
 	}
 	if _, err := writeStage(input.OutputDir, DiagnosisFile, diagnosisReport, StepDiagnosis, &report); err != nil {
 		return report, err
 	}
+	recordDuration(&report, StepDiagnosis, started)
 	return finish(input.OutputDir, report)
+}
+
+func recordDuration(report *Report, step string, started time.Time) {
+	report.StepDurations = append(report.StepDurations, StepDuration{
+		Step: step, WallClockMS: float64(time.Since(started)) / float64(time.Millisecond),
+	})
 }
 
 func stop(outputDir string, report Report, step, code string, cause error) (Report, error) {

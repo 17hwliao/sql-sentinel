@@ -43,6 +43,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   pipeline  串联只读准入、影子 EXPLAIN、计划对照与诊断并输出溯源工件
   propose-candidate  用受限 Eino 图从管线证据提出并严格校验 CandidateSpec
   webhook-serve  仅监听本机的已签名模拟 PR 评审服务
+  evaluate  生成最终验收评测报告并可重跑固定安全测试
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -107,6 +108,13 @@ webhook-serve 参数:
   --out-dir PATH        delivery 评论与工件根目录（必填）
   --max-concurrent N    同时影子验证数，1-4（默认 1）
   --chunk N             快照门禁分块大小（默认 5000）
+
+evaluate 参数:
+  --manifest PATH          评测样例 manifest（默认 examples/evaluation/manifest.json）
+  --validation PATH        历史测量 JSON（默认 validation_result.json）
+  --pipeline-report PATH   本次 smoke 的 pipeline_report.json（可选）
+  --out PATH               评测报告 JSON（默认 evaluation_report.json）
+  --run-security-tests     重跑固定安全测试（默认 true）
 
 先启动容器:
   docker compose -f deployments/docker-compose.yml up -d
@@ -178,6 +186,10 @@ func main() {
 		}
 	case "webhook-serve":
 		if err := runWebhookServe(args); err != nil {
+			fatal(err)
+		}
+	case "evaluate":
+		if err := runEvaluate(args); err != nil {
 			fatal(err)
 		}
 	default:

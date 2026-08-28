@@ -1,0 +1,12 @@
+{
+  "dataset_version": "eval-sql-smells-v1",
+  "cases": [
+    {"id": "select_star", "sql_file": "select_star.sql", "expect_signal": "select_star"},
+    {"id": "leading_wildcard_like", "sql_file": "leading_wildcard_like.sql", "expect_signal": "leading_wildcard_like"},
+    {"id": "function_on_column", "sql_file": "function_on_column.sql", "expect_signal": "function_on_probable_column"},
+    {"id": "locking_read", "sql_file": "locking_read.sql", "expect_rejection": "locking_read"},
+    {"id": "ddl", "sql_file": "ddl.sql", "expect_rejection": "not_readonly_select"},
+    {"id": "multiple_statements", "sql_file": "multiple_statements.sql", "expect_rejection": "multiple_statements"},
+    {"id": "outfile", "sql_file": "outfile.sql", "expect_rejection": "select_into_file"}
+  ]
+}

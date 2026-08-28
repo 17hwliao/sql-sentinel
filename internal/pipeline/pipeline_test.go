@@ -31,6 +31,9 @@ func TestRunStopsAfterRejectedSQLAndPreservesAdmissionEvidence(t *testing.T) {
 	if runnerCalled || report.StoppedStep != StepSQLAdmit || len(report.CompletedSteps) != 1 {
 		t.Fatalf("unexpected stop result: %+v", report)
 	}
+	if len(report.StepDurations) != 1 || report.StepDurations[0].Step != StepSQLAdmit || report.StepDurations[0].WallClockMS < 0 {
+		t.Fatalf("rejected run timing = %+v", report.StepDurations)
+	}
 	if len(report.RejectionReasons) != 1 || report.RejectionReasons[0].Code != "locking_read" {
 		t.Fatalf("rejection reasons: %+v", report.RejectionReasons)
 	}
@@ -87,6 +90,14 @@ func TestRunWritesAllStagesWithInputProvenance(t *testing.T) {
 	}
 	if report.StoppedStep != "" || len(report.CompletedSteps) != 4 || len(report.Artifacts) != 5 {
 		t.Fatalf("unexpected success report: %+v", report)
+	}
+	if len(report.StepDurations) != 4 {
+		t.Fatalf("success timing count = %d, want 4", len(report.StepDurations))
+	}
+	for i, step := range []string{StepSQLAdmit, StepCandidateExplain, StepPlanCompare, StepDiagnosis} {
+		if report.StepDurations[i].Step != step || report.StepDurations[i].WallClockMS < 0 {
+			t.Fatalf("invalid timing[%d] = %+v", i, report.StepDurations[i])
+		}
 	}
 	for _, file := range []string{AdmissionFile, CandidateFile, ComparisonFile, DiagnosisFile, SummaryFile} {
 		if _, err := os.Stat(filepath.Join(out, file)); err != nil {
