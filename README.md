@@ -1,5 +1,7 @@
 # SQL Sentinel：带影子库验证闭环的 SQL 诊断与 PR 评审 Agent
 
+> 文档导航：[docs/README.md](docs/README.md)。该导航保留并分类现有规格、阶段记录与证据，不替代原始文档。
+
 ## 1. 项目目标
 
 SQL Sentinel 面向 GitHub PR 中的 SQL Migration 和显式 Raw SQL 字符串，自动发现数据库风险并生成可验证的优化建议。
