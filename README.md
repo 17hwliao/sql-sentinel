@@ -475,3 +475,26 @@ HTTP 429 / `queue_full`，没有无界队列。delivery 输出包含 `comment.md
 2026-08-28 的本机模拟投递复用 `examples/candidate-explain-query.sql` 与
 `examples/candidate-explain-index.json`：HTTP 202，依序完成 `sql_admit`、`candidate_explain`、
 `plan_compare`、`diagnosis`，评论记录 5 项 artifact 摘要，结果为 L1/false；这是计划与诊断证据，不是性能收益。
+
+## 23. AgentMesh 本地联桥验证
+
+`agentmesh-bridge-test` 只消费 [AgentMesh](../01-AgentMesh-018/) 已发布的
+`POST /v1/chat/completions` SSE 契约，用于验证两个项目的本机传输互操作；它不把模型输出、SQL、证据包或
+CandidateSpec 传给对方。命令只接受 `http://127.0.0.1:PORT`，从进程环境读取 `AGENTMESH_BASE_URL`、
+`AGENTMESH_API_KEY`、`AGENTMESH_MODEL` 与 `AGENTMESH_COMMIT_SHA`，将 Key 仅置于 Authorization header。
+输出报告固定为 `evidence_level=L1`、`eligible_for_performance_claim=false`；SSE delta 只在内存消费，绝不写入
+报告、终端或日志。
+
+当本机已有 AgentMesh 工作树及 Ollama 时，可从本仓库运行：
+
+```powershell
+$env:AGENTMESH_REPO = 'C:\path\to\AgentMesh'
+$env:OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
+$env:OLLAMA_MODEL = 'qwen2.5:7b'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-agentmesh-bridge.ps1
+```
+
+脚本仅临时生成 bootstrap Key 与路由，在 `127.0.0.1:18185` 启动 AgentMesh；启动前会拒绝已被占用的端口，特意避开
+历史 demo 使用的 18082–18084。成功报告含 AgentMesh Git commit SHA、HTTP 状态、trace ID 与 SSE 完成状态，可用于
+跨项目溯源；这只是一次本机 SSE 传输实证，不是模型质量、数据库、性能、成本或生产集成结论。若环境缺失或网关失败，
+脚本如实输出受控拒绝/失败，且不会伪造成功。

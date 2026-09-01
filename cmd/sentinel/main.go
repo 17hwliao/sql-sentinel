@@ -44,6 +44,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   propose-candidate  用受限 Eino 图从管线证据提出并严格校验 CandidateSpec
   webhook-serve  仅监听本机的已签名模拟 PR 评审服务
   evaluate  生成最终验收评测报告并可重跑固定安全测试
+  agentmesh-bridge-test  只验证到本机 AgentMesh 的 SSE 传输，不消费模型输出
 
 seed 参数:
   --rows N        写入行数。0 表示只连接并幂等建表，不写数据（默认 0）
@@ -115,6 +116,9 @@ evaluate 参数:
   --pipeline-report PATH   本次 smoke 的 pipeline_report.json（可选）
   --out PATH               评测报告 JSON（默认 evaluation_report.json）
   --run-security-tests     重跑固定安全测试（默认 true）
+
+agentmesh-bridge-test 参数:
+  --out PATH               新建的桥接 JSON 报告路径（必填）
 
 先启动容器:
   docker compose -f deployments/docker-compose.yml up -d
@@ -190,6 +194,10 @@ func main() {
 		}
 	case "evaluate":
 		if err := runEvaluate(args); err != nil {
+			fatal(err)
+		}
+	case "agentmesh-bridge-test":
+		if err := runAgentMeshBridgeTest(args); err != nil {
 			fatal(err)
 		}
 	default:
