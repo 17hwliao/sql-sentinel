@@ -18,6 +18,7 @@
 | 只读证据链 | 009–012 | [计划对照](../specs/009-explain-plan-comparison/spec.md)、[诊断](../specs/010-plan-diagnostic-hypotheses/spec.md)、[管线](../specs/012-readonly-evidence-pipeline/spec.md) |
 | LLM 与本机 PR 入口 | 013–014 | [受限 Eino 提案](../specs/013-eino-candidate-proposal/spec.md)、[Webhook](../specs/014-pr-review-webhook/spec.md) |
 | 验收与跨项目复用 | 015–017 | [最终验收](../specs/015-final-acceptance/spec.md)、[AgentMesh 联桥](../specs/016-agentmesh-bridge-test/spec.md)、本导航整理 |
+| 受控知识 RAG | 018–019 | [离线知识助手](../specs/018-rag-knowledge-assistant/spec.md)、[生产持久化](../specs/019-rag-production-infrastructure/spec.md)、[RAG 运维说明](rag.md) |
 
 ## 证据与边界
 
@@ -35,6 +36,7 @@
 | SQL/CandidateSpec/影子门禁 | [`internal/sqladmit/`](../internal/sqladmit/)、[`internal/candidate/`](../internal/candidate/)、[`internal/shadowgate/`](../internal/shadowgate/) |
 | 计划、诊断、证据绑定 | [`internal/plancompare/`](../internal/plancompare/)、[`internal/diagnosis/`](../internal/diagnosis/)、[`internal/evidencebind/`](../internal/evidencebind/) |
 | 受限 LLM、Webhook、联桥 | [`internal/agentgraph/`](../internal/agentgraph/)、[`internal/webhook/`](../internal/webhook/)、[`internal/agentmeshbridge/`](../internal/agentmeshbridge/) |
+| 受控知识检索旁路 | [`internal/rag/`](../internal/rag/)、[`cmd/rag-demo/`](../cmd/rag-demo/)、[`rag-corpus-manifest.json`](rag-corpus-manifest.json) |
 
 ## 面试材料
 
