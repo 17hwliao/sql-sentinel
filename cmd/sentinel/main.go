@@ -43,6 +43,7 @@ const usage = `sqlsentinel —— SQL Sentinel 阶段 0：可信 A/B 测量 Spik
   pipeline  串联只读准入、影子 EXPLAIN、计划对照与诊断并输出溯源工件
   propose-candidate  用受限 Eino 图从管线证据提出并严格校验 CandidateSpec
   webhook-serve  仅监听本机的已签名模拟 PR 评审服务
+  kafka-serve    本机 Kafka 工作流：Webhook → outbox → worker → 状态查询
   evaluate  生成最终验收评测报告并可重跑固定安全测试
   agentmesh-bridge-test  只验证到本机 AgentMesh 的 SSE 传输，不消费模型输出
 
@@ -109,6 +110,14 @@ webhook-serve 参数:
   --out-dir PATH        delivery 评论与工件根目录（必填）
   --max-concurrent N    同时影子验证数，1-4（默认 1）
   --chunk N             快照门禁分块大小（默认 5000）
+
+kafka-serve 参数:
+  --listen ADDR         仅允许 127.0.0.1 host:port（默认 127.0.0.1:18081）
+  --candidate PATH      服务器本地 CandidateSpec JSON（必填）
+  --out-dir PATH        worker 工件根目录（必填）
+  --mysql-dsn DSN       Kafka control-plane MySQL DSN（或 SQL_SENTINEL_KAFKA_MYSQL_DSN）
+  --brokers HOSTS       Kafka brokers（或 SQL_SENTINEL_KAFKA_BROKERS）
+  --group ID            consumer group（默认 sql-sentinel-worker-v1）
 
 evaluate 参数:
   --manifest PATH          评测样例 manifest（默认 examples/evaluation/manifest.json）
@@ -190,6 +199,10 @@ func main() {
 		}
 	case "webhook-serve":
 		if err := runWebhookServe(args); err != nil {
+			fatal(err)
+		}
+	case "kafka-serve":
+		if err := runKafkaServe(args); err != nil {
 			fatal(err)
 		}
 	case "evaluate":

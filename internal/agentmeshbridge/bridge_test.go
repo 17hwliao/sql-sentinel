@@ -77,6 +77,37 @@ func TestRunStableRejections(t *testing.T) {
 	}
 }
 
+func TestDraftCandidateAccumulatesOnlySSEDeltaText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if !request.Stream || request.Messages[0].Content != "evidence prompt" {
+			t.Fatalf("request=%#v", request)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"table\\\":\\\"orders\\\",\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"\\\"index_name\\\":\\\"idx_cand_x\\\",\\\"columns\\\":[]}\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	text, err := DraftCandidate(context.Background(), server.Client(), Config{BaseURL: server.URL, APIKey: "key", Model: "model", AgentMeshCommitSHA: "local", Timeout: time.Second}, "evidence prompt")
+	if err != nil || text != `{"table":"orders","index_name":"idx_cand_x","columns":[]}` {
+		t.Fatalf("text=%q err=%v", text, err)
+	}
+}
+
+func TestDraftCandidateRejectsErrorEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"error\":{\"code\":\"stream_interrupted\"}}\n\n"))
+	}))
+	defer server.Close()
+	_, err := DraftCandidate(context.Background(), server.Client(), Config{BaseURL: server.URL, APIKey: "key", Model: "model", AgentMeshCommitSHA: "local", Timeout: time.Second}, "evidence prompt")
+	if err == nil {
+		t.Fatal("error event was accepted")
+	}
+}
+
 func TestLoadConfigRejectsBeforeRequest(t *testing.T) {
 	lookup := func(name string) string {
 		if name == "AGENTMESH_BASE_URL" {

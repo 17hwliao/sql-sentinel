@@ -164,6 +164,49 @@ func Run(ctx context.Context, client *http.Client, cfg Config) Report {
 	return report
 }
 
+// DraftCandidate sends only the already-scoped evidence prompt through the
+// public AgentMesh SSE contract and returns its accumulated text in memory.
+// Callers must still strictly decode and validate the result before use.
+func DraftCandidate(ctx context.Context, client *http.Client, cfg Config, prompt string) (string, error) {
+	if err := validateConfig(cfg); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return "", errors.New("candidate prompt is required")
+	}
+	if client == nil {
+		client = http.DefaultClient
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
+	body, err := json.Marshal(chatRequest{Model: cfg.Model, Messages: []chatMessage{{Role: "user", Content: prompt}}, Stream: true})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, strings.TrimRight(cfg.BaseURL, "/")+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		return "", fmt.Errorf("agentmesh candidate request rejected: %s", rejectionCode(resp.StatusCode))
+	}
+	text, done, streamCode, err := consumeSSEText(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if streamCode != "" || !done {
+		return "", errors.New("agentmesh candidate stream incomplete")
+	}
+	return text, nil
+}
+
 func newReport(status, code string, cfg Config) Report {
 	return Report{
 		Status:                      status,
@@ -224,6 +267,45 @@ func consumeSSE(r io.Reader) (done bool, streamCode string, err error) {
 		return false, "", err
 	}
 	return false, "", nil
+}
+
+func consumeSSEText(r io.Reader) (text string, done bool, streamCode string, err error) {
+	var output strings.Builder
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 1024), 128*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			return output.String(), true, "", nil
+		}
+		var event struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Error *struct {
+				Code string `json:"code"`
+			} `json:"error,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			return "", false, "", err
+		}
+		if event.Error != nil && event.Error.Code != "" {
+			return "", false, event.Error.Code, nil
+		}
+		for _, choice := range event.Choices {
+			output.WriteString(choice.Delta.Content)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", false, "", err
+	}
+	return output.String(), false, "", nil
 }
 
 type chatRequest struct {

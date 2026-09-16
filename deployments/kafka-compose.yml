@@ -1,0 +1,56 @@
+name: sql-sentinel-kafka
+
+# Deliberately separate project, ports, and volumes from the baseline/candidate
+# measurement compose file. Start only for Kafka workflow verification.
+services:
+  control-plane:
+    image: mysql:8.4
+    container_name: sqlsentinel-kafka-control
+    environment:
+      MYSQL_ROOT_PASSWORD: sentinel
+      MYSQL_DATABASE: sentinel_control
+    ports:
+      - "13308:3306"
+    volumes:
+      - kafka-control-data:/var/lib/mysql
+      - ./kafka/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-psentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: sqlsentinel-kafka-broker
+    ports:
+      - "19092:19092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_HOST://:19092,CONTROLLER://:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://127.0.0.1:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  topic-init:
+    image: apache/kafka:4.3.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic sql-sentinel.jobs --partitions 1 --replication-factor 1"]
+
+volumes:
+  kafka-control-data:

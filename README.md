@@ -237,6 +237,78 @@ go build ./... && go vet ./... && go test -count=1 ./...
 因此当前环境**不足以据此声称读收益**，详见
 [specs/001-trusted-ab-measurement/plan.md](specs/001-trusted-ab-measurement/plan.md) 的 Spike 记录。
 
+## 24. Kafka 异步工作流（补充模块）
+
+Kafka 扩展位于 `internal/kafka`，不改变既有 SQL Admit、shadowgate、pipeline 或证据等级裁决。接入层把
+`delivery_id`、PR 号、SQL 和 CandidateSpec 在一个 control-plane MySQL 事务中写成 `job=RECEIVED -> QUEUED`
+并创建 transactional outbox；relay 先发布再标记 outbox。因此 publish 后崩溃最多产生重复事件，不会静默丢任务。
+
+Kafka event 是严格的最小引用：`schema_version`、`event_id`、`job_id`、`delivery_id`、`attempt`。SQL、CandidateSpec、
+secret、raw key、完整 prompt 和 SSE delta 都留在 control plane 或内存，不进入 Kafka payload、日志或状态 API。
+worker 通过 owner/expiry CAS lease 把任务置为 `RUNNING`，只在 runner 成功后置 `COMPLETED`；明确拒绝为 `REJECTED`，
+可重试错误按指数退避进入 `RETRYING`，超过上限进入 `DEAD_LETTER`。重复 delivery、relay 重发和 Kafka 重复消费均由
+delivery/event 唯一约束及 lease/status 幂等处理。
+
+离线契约验证：
+
+```powershell
+go test -count=1 ./internal/kafka/...
+```
+
+专用栈与 baseline/candidate 测量隔离，端口为 control-plane `13308`、Kafka `19092`，Compose project 为
+`sql-sentinel-kafka`：
+
+```powershell
+docker compose -f deployments/kafka-compose.yml up -d
+```
+
+`kafka-serve` assembles the actual local workflow instead of using the
+in-memory broker: it verifies the Webhook, commits the control-plane job and
+outbox, relays to Kafka, runs the existing shadow pipeline, and exposes a safe
+job-status endpoint. Start the isolated Kafka control plane and the existing
+baseline/candidate shadow databases first:
+
+```powershell
+docker compose -f deployments/kafka-compose.yml up -d --wait
+docker compose -f deployments/docker-compose.yml up -d --wait
+$env:SQL_SENTINEL_WEBHOOK_SECRET = 'local-only-secret'
+$env:SQL_SENTINEL_CONTROL_TOKEN = 'local-control-token'
+$env:SQL_SENTINEL_KAFKA_MYSQL_DSN = 'root:sentinel@tcp(127.0.0.1:13308)/sentinel_control?parseTime=true&loc=UTC'
+$env:SQL_SENTINEL_KAFKA_BROKERS = '127.0.0.1:19092'
+go run -buildvcs=false ./cmd/sentinel kafka-serve `
+  --candidate examples/candidate-explain-index.json `
+  --out-dir work/kafka-live
+```
+
+`POST /webhook/pr` accepts only a body signed with `sha256=<HMAC>` and returns
+`202` plus a `job_id`; `GET /jobs/{delivery_id}` returns only identifiers,
+hashes, attempt count and status. It intentionally never returns the SQL or
+CandidateSpec stored inside the control plane.
+
+Worker 领取任务后会在 lease 的三分之一周期续租；续租采用 owner/expiry CAS，过期或被接管的
+worker 无法再完成任务。`SIGTERM`/`Ctrl+C` 会停止新消费，但已经领取的诊断任务会在
+`--run-timeout`（默认 15 分钟）内完成并持久化终态；可用 `--lease`、
+`--lease-renew-every` 和 `--run-timeout` 调整这三个边界。
+
+Failures are inspectable without exposing SQL: `GET /dead-letters` and
+`GET /jobs/{delivery_id}/history` require `Authorization: Bearer
+$SQL_SENTINEL_CONTROL_TOKEN`. An operator can explicitly enqueue a fresh
+attempt epoch only for a `DEAD_LETTER` job with `POST
+/jobs/{delivery_id}/replay`; it clears the terminal failure state, appends a
+history record, and writes a new reference-only outbox event atomically. The
+control token is required even though this reference server binds to loopback.
+
+Once `kafka-serve` is running, replay the complete signed-delivery and
+duplicate-delivery acceptance check with:
+
+```powershell
+./scripts/verify-kafka-workflow.ps1
+```
+
+只有在用户明确启动该文件并提供 MySQL/Kafka 连接配置后才运行真实验证；没有这些条件时应报告 controlled refusal，
+不得把 MemoryBroker 测试写成真实 Kafka/DB 已验证。状态查询可挂载 `kafka.StatusHandler(store)`，它只返回 job 摘要、哈希、
+尝试次数和状态，不返回 SQL 或 CandidateSpec。
+
 ### 报告消费规则
 
 `verdict=Better` 只表示本次统计测量的方向性结果，**不等于**已经取得性能收益证据。
