@@ -2,3 +2,8 @@
 pipeline-output*/
 pipeline-rejected*/
 webhook-deliveries*/
+
+# Local Go build artifacts
+*.exe
+*.test
+*.out

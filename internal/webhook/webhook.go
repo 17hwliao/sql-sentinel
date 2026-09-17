@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 
+	"sqlsentinel/internal/kafka"
 	"sqlsentinel/internal/pipeline"
 	"sqlsentinel/internal/sqladmit"
 )
@@ -63,6 +64,8 @@ type Reason struct {
 type DeliveryReport struct {
 	DeliveryID                  string              `json:"delivery_id"`
 	PRNumber                    int                 `json:"pr_number"`
+	JobID                       string              `json:"job_id,omitempty"`
+	Duplicate                   bool                `json:"duplicate,omitempty"`
 	VerificationStatus          string              `json:"verification_status"`
 	EvidenceLevel               string              `json:"evidence_level"`
 	EligibleForPerformanceClaim bool                `json:"eligible_for_performance_claim"`
@@ -81,13 +84,20 @@ type Config struct {
 	OutputRoot    string
 	MaxConcurrent int
 	RunPipeline   PipelineRunner
+	// AsyncEnqueue switches the verified single-SQL path to the durable Kafka
+	// workflow. It must be paired with CandidateSpec; the spec is stored in the
+	// control plane and never sent in the Kafka event.
+	CandidateSpec []byte
+	AsyncEnqueue  func(context.Context, kafka.ReceiveInput) (kafka.ReceiveResult, error)
 }
 
 type Server struct {
-	secret      []byte
-	outputRoot  string
-	runPipeline PipelineRunner
-	sem         chan struct{}
+	secret        []byte
+	outputRoot    string
+	runPipeline   PipelineRunner
+	candidateSpec []byte
+	asyncEnqueue  func(context.Context, kafka.ReceiveInput) (kafka.ReceiveResult, error)
+	sem           chan struct{}
 }
 
 func New(config Config) (*Server, error) {
@@ -100,17 +110,22 @@ func New(config Config) (*Server, error) {
 	if config.MaxConcurrent < 1 || config.MaxConcurrent > 4 {
 		return nil, errors.New("max concurrent must be between 1 and 4")
 	}
-	if config.RunPipeline == nil {
-		return nil, errors.New("pipeline runner is required")
+	if config.RunPipeline == nil && config.AsyncEnqueue == nil {
+		return nil, errors.New("pipeline runner or async enqueue is required")
+	}
+	if config.AsyncEnqueue != nil && len(config.CandidateSpec) == 0 {
+		return nil, errors.New("CandidateSpec is required for async enqueue")
 	}
 	if err := os.MkdirAll(config.OutputRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create webhook output root: %w", err)
 	}
 	return &Server{
-		secret:      append([]byte(nil), config.Secret...),
-		outputRoot:  config.OutputRoot,
-		runPipeline: config.RunPipeline,
-		sem:         make(chan struct{}, config.MaxConcurrent),
+		secret:        append([]byte(nil), config.Secret...),
+		outputRoot:    config.OutputRoot,
+		runPipeline:   config.RunPipeline,
+		candidateSpec: append([]byte(nil), config.CandidateSpec...),
+		asyncEnqueue:  config.AsyncEnqueue,
+		sem:           make(chan struct{}, config.MaxConcurrent),
 	}, nil
 }
 
@@ -163,8 +178,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRejection(w, http.StatusConflict, deliveryErrorCode(err))
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{
+	writeJSON(w, http.StatusAccepted, map[string]any{
 		"delivery_id": event.DeliveryID, "verification_status": report.VerificationStatus,
+		"job_id": report.JobID, "duplicate": report.Duplicate,
 	})
 }
 
@@ -194,6 +210,19 @@ func (s *Server) process(ctx context.Context, event Event) (DeliveryReport, erro
 	if len(sqls) != 1 {
 		report.RejectionReasons = append(report.RejectionReasons, Reason{Code: ReasonMultipleSQL})
 		return s.persist(report)
+	}
+	if s.asyncEnqueue != nil {
+		result, err := s.asyncEnqueue(ctx, kafka.ReceiveInput{
+			DeliveryID: event.DeliveryID, PRNumber: event.PRNumber,
+			SQL: []byte(sqls[0]), CandidateSpec: append([]byte(nil), s.candidateSpec...),
+		})
+		if err != nil {
+			return DeliveryReport{}, fmt.Errorf("enqueue delivery: %w", err)
+		}
+		report.JobID = result.Job.ID
+		report.Duplicate = result.Duplicate
+		report.VerificationStatus = "queued"
+		return report, nil
 	}
 
 	deliveryDir, err := s.createDeliveryDir(event.DeliveryID)

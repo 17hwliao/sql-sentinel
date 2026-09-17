@@ -1,0 +1,5 @@
+.git
+pipeline-output
+pipeline-output-v2
+pipeline-rejected
+*.log

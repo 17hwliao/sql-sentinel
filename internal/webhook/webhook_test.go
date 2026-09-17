@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"sqlsentinel/internal/kafka"
 	"sqlsentinel/internal/pipeline"
 )
 
@@ -221,6 +222,41 @@ func TestQueueFullReturns429WithoutSecondPipelineOrOutput(t *testing.T) {
 		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
 	}
 }
+
+func TestAsyncEnqueueUsesDurableDeliveryIdempotency(t *testing.T) {
+	store := kafka.NewMemoryStore()
+	server, err := New(Config{
+		Secret: testSecretBytes(), OutputRoot: t.TempDir(), MaxConcurrent: 1,
+		CandidateSpec: []byte(`{"table":"orders","index_name":"idx_cand_x"}`),
+		AsyncEnqueue: func(ctx context.Context, input kafka.ReceiveInput) (kafka.ReceiveResult, error) {
+			return store.Receive(ctx, input)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := eventJSON(t, "async-delivery", "diff --git a/q.sql b/q.sql\n+SELECT id FROM orders\n")
+	first := perform(server, body)
+	second := perform(server, body)
+	if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
+		t.Fatalf("statuses=%d,%d", first.Code, second.Code)
+	}
+	var firstBody, secondBody map[string]any
+	if err := json.Unmarshal(first.Body.Bytes(), &firstBody); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &secondBody); err != nil {
+		t.Fatal(err)
+	}
+	if firstBody["job_id"] != secondBody["job_id"] || secondBody["duplicate"] != true {
+		t.Fatalf("async responses=%v,%v", firstBody, secondBody)
+	}
+	if _, err := os.Stat(filepath.Join(server.outputRoot, "async-delivery")); !os.IsNotExist(err) {
+		t.Fatalf("async path wrote local output: %v", err)
+	}
+}
+
+func testSecretBytes() []byte { return []byte(testSecret) }
 
 func newTestServer(t *testing.T, root string, runner PipelineRunner) *Server {
 	t.Helper()
