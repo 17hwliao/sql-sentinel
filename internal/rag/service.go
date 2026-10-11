@@ -3,6 +3,8 @@ package rag
 import (
 	"context"
 	"fmt"
+	"html"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -35,15 +37,22 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (Document, []Ch
 	for i := range chunks {
 		texts[i] = chunks[i].Text
 	}
-	vectors, err := s.embedding.Embed(ctx, texts)
-	if err != nil {
-		return Document{}, nil, fmt.Errorf("embed document %s: %w", doc.ID, err)
+	if len(chunks) > 128 {
+		return Document{}, nil, ErrInvalidInput
+	}
+	var vectors [][]float64
+	for start := 0; start < len(texts); start += 4 {
+		batch, e := s.embedding.Embed(ctx, texts[start:min(start+4, len(texts))])
+		if e != nil {
+			return Document{}, nil, fmt.Errorf("embed document: %w", e)
+		}
+		vectors = append(vectors, batch...)
 	}
 	if len(vectors) != len(chunks) {
 		return Document{}, nil, fmt.Errorf("%w: embedding count does not match chunk count", ErrUnavailable)
 	}
 	for i := range vectors {
-		if len(vectors[i]) != s.embedding.Dimension() {
+		if !validVector(vectors[i], s.embedding.Dimension()) {
 			return Document{}, nil, fmt.Errorf("%w: embedding dimension mismatch", ErrUnavailable)
 		}
 	}
@@ -64,6 +73,9 @@ func (s *Service) Query(ctx context.Context, scope Scope, question string, optio
 	if err := validateQuestion(question); err != nil {
 		return AnswerContext{}, err
 	}
+	if len(question) > 4096 || options.TopK > 20 || math.IsNaN(options.MinScore) || math.IsInf(options.MinScore, 0) || options.MinScore < 0 || options.MinScore > 1 {
+		return AnswerContext{}, ErrInvalidInput
+	}
 	if options.Now.IsZero() {
 		options.Now = s.now()
 	}
@@ -74,7 +86,7 @@ func (s *Service) Query(ctx context.Context, scope Scope, question string, optio
 	if err != nil {
 		return AnswerContext{}, fmt.Errorf("embed question: %w", err)
 	}
-	if len(vectors) != 1 || len(vectors[0]) != s.embedding.Dimension() {
+	if len(vectors) != 1 || !validVector(vectors[0], s.embedding.Dimension()) {
 		return AnswerContext{}, fmt.Errorf("%w: query embedding dimension mismatch", ErrUnavailable)
 	}
 	hits, err := s.store.Search(ctx, scope, vectors[0], options)
@@ -86,16 +98,32 @@ func (s *Service) Query(ctx context.Context, scope Scope, question string, optio
 	// expired/non-untrusted chunks to the answer context.
 	filtered := hits[:0]
 	for _, hit := range hits {
-		if hit.Chunk.Scope == scope && !isExpired(hit.Chunk.ExpiresAt, options.Now) && hit.Chunk.Untrusted {
+		if hit.Chunk.Scope == scope && !isExpired(hit.Chunk.ExpiresAt, options.Now) && hit.Chunk.Untrusted && !math.IsNaN(hit.Score) && !math.IsInf(hit.Score, 0) && hit.Score >= options.MinScore {
 			filtered = append(filtered, hit)
 		}
 	}
 	hits = filtered
 	if options.Reranker != nil && len(hits) > 0 {
+		original := map[string]Chunk{}
+		for _, hit := range hits {
+			original[hit.Chunk.ID] = hit.Chunk
+		}
 		hits, err = options.Reranker.Rerank(ctx, question, hits)
 		if err != nil {
 			return AnswerContext{}, fmt.Errorf("rerank evidence: %w", err)
 		}
+		filtered = hits[:0]
+		seen := map[string]bool{}
+		for _, hit := range hits {
+			if original[hit.Chunk.ID] == hit.Chunk && !seen[hit.Chunk.ID] && !math.IsNaN(hit.Score) && !math.IsInf(hit.Score, 0) {
+				filtered = append(filtered, hit)
+				seen[hit.Chunk.ID] = true
+			}
+		}
+		hits = filtered
+	}
+	if len(hits) > options.TopK {
+		hits = hits[:options.TopK]
 	}
 	answer := ContextFromHits(question, hits)
 	if !answer.HasEvidence {
@@ -112,7 +140,7 @@ func ContextFromHits(question string, hits []SearchHit) AnswerContext {
 		}
 		citation := Citation{DocumentID: hit.Chunk.DocumentID, ChunkID: hit.Chunk.ID, SourceURI: hit.Chunk.SourceURI, Version: hit.Chunk.Version, DocumentSHA256: hit.Chunk.DocumentSHA256, SHA256: hit.Chunk.TextSHA256, Score: hit.Score}
 		answer.Citations = append(answer.Citations, citation)
-		answer.Items = append(answer.Items, ContextItem{Citation: citation, Text: "<untrusted_context source=\"" + hit.Chunk.SourceURI + "\" chunk=\"" + hit.Chunk.ID + "\">\n" + hit.Chunk.Text + "\n</untrusted_context>", Untrusted: true})
+		answer.Items = append(answer.Items, ContextItem{Citation: citation, Text: "<untrusted_context source=\"" + html.EscapeString(hit.Chunk.SourceURI) + "\" chunk=\"" + hit.Chunk.ID + "\">\n" + html.EscapeString(hit.Chunk.Text) + "\n</untrusted_context>", Untrusted: true})
 	}
 	answer.HasEvidence = len(answer.Items) > 0
 	if !answer.HasEvidence {

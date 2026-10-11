@@ -3,3 +3,14 @@ pipeline-output
 pipeline-output-v2
 pipeline-rejected
 *.log
+.private
+.env
+.env.*
+secrets
+**/secrets
+*.pem
+*.key
+backups
+validation
+__pycache__
+*.pyc

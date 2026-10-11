@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -39,18 +40,24 @@ func (s *MemoryVectorStore) Upsert(ctx context.Context, chunks []Chunk, vectors 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Validate the whole batch before replacing any document. Failed batches
+	// must not partially delete a prior searchable version.
 	for i, chunk := range chunks {
-		if err := ctx.Err(); err != nil {
-			return err
+		if chunk.Scope.validate() != nil || chunk.ID == "" || !validVector(vectors[i], s.dim) {
+			return ErrInvalidInput
 		}
-		if err := chunk.Scope.validate(); err != nil || chunk.ID == "" || len(vectors[i]) != s.dim {
-			return fmt.Errorf("%w: invalid chunk or vector at index %d", ErrInvalidInput, i)
-		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for _, chunk := range chunks {
 		for id, entry := range s.entries {
-			if entry.chunk.Scope == chunk.Scope && entry.chunk.DocumentID == chunk.DocumentID && entry.chunk.Version != chunk.Version {
+			if entry.chunk.Scope == chunk.Scope && entry.chunk.DocumentID == chunk.DocumentID {
 				delete(s.entries, id)
 			}
 		}
+	}
+	for i, chunk := range chunks {
 		s.entries[chunk.ID] = memoryEntry{chunk: chunk, vector: append([]float64(nil), vectors[i]...)}
 	}
 	return nil
@@ -60,7 +67,7 @@ func (s *MemoryVectorStore) Search(ctx context.Context, scope Scope, query []flo
 	if err := scope.validate(); err != nil {
 		return nil, err
 	}
-	if len(query) != s.dim {
+	if !validVector(query, s.dim) {
 		return nil, fmt.Errorf("%w: query vector dimension mismatch", ErrInvalidInput)
 	}
 	if options.TopK <= 0 {
@@ -183,7 +190,11 @@ func (s *HTTPVectorStore) request(ctx context.Context, method, path string, in, 
 		return fmt.Errorf("%w: vector store returned HTTP %s", ErrUnavailable, resp.Status)
 	}
 	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20+1))
+		if err != nil || len(raw) > 8<<20 {
+			return ErrUnavailable
+		}
+		if err := json.Unmarshal(raw, out); err != nil {
 			return fmt.Errorf("decode vector store response: %w", err)
 		}
 	}

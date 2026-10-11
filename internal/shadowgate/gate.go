@@ -15,14 +15,14 @@ import (
 
 	"sqlsentinel/internal/candidate"
 	"sqlsentinel/internal/measure"
-	"sqlsentinel/internal/snapshot"
+	"sqlsentinel/internal/shadowdata"
 	"sqlsentinel/internal/sqladmit"
 )
 
 var (
 	ErrSQLRejected             = errors.New("SQL does not pass read-only admission")
 	ErrPlaceholderUnsupported  = errors.New("SQL bind placeholders are not supported")
-	ErrUnsupportedTable        = errors.New("CandidateSpec table is outside the orders-v1 shadow scope")
+	ErrUnsupportedTable        = errors.New("CandidateSpec table is not referenced by the admitted SQL")
 	ErrTableMissing            = errors.New("CandidateSpec table does not exist on candidate")
 	ErrColumnMissing           = errors.New("CandidateSpec column does not exist on candidate")
 	ErrIndexDefinitionConflict = errors.New("candidate index name is already used by a different definition")
@@ -46,7 +46,17 @@ func Prepare(sql string, spec candidate.Spec) (Prepared, error) {
 	if hasBindPlaceholder(sql) {
 		return Prepared{}, ErrPlaceholderUnsupported
 	}
-	if spec.Table != "orders" {
+	tables, err := sqladmit.Inspect(sql)
+	if err != nil {
+		return Prepared{}, err
+	}
+	found := false
+	for _, table := range tables {
+		if strings.EqualFold(table, spec.Table) {
+			found = true
+		}
+	}
+	if !found {
 		return Prepared{}, fmt.Errorf("%w: %q", ErrUnsupportedTable, spec.Table)
 	}
 	ddl, err := candidate.CompileCreateIndex(spec)
@@ -59,9 +69,10 @@ func Prepare(sql string, spec candidate.Spec) (Prepared, error) {
 // Gate has read access to baseline and candidate; only Candidate is used for
 // DDL, ANALYZE and EXPLAIN. The fields make that write boundary explicit.
 type Gate struct {
-	Baseline  *sql.DB
-	Candidate *sql.DB
-	Chunk     int
+	Baseline      shadowdata.DB
+	Candidate     shadowdata.DB
+	AllowedTables map[string]bool
+	Chunk         int
 }
 
 type Snapshot struct {
@@ -106,7 +117,16 @@ func (g Gate) Run(ctx context.Context, p Prepared) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	gate, err := identicalSnapshots(ctx, g.Baseline, g.Candidate, g.Chunk)
+	tables, err := sqladmit.Inspect(p.SQL)
+	if err != nil {
+		return Report{}, err
+	}
+	for _, table := range tables {
+		if g.AllowedTables != nil && !g.AllowedTables[table] {
+			return Report{}, ErrUnsupportedTable
+		}
+	}
+	gate, err := identicalSnapshots(ctx, g.Baseline, g.Candidate, tables)
 	if err != nil {
 		return Report{}, err
 	}
@@ -117,7 +137,7 @@ func (g Gate) Run(ctx context.Context, p Prepared) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	if _, err := g.Candidate.ExecContext(ctx, "ANALYZE TABLE `orders`"); err != nil {
+	if _, err := g.Candidate.ExecContext(ctx, "ANALYZE TABLE `"+p.Spec.Table+"`"); err != nil {
 		return Report{}, fmt.Errorf("analyze candidate table: %w", err)
 	}
 	var explain string
@@ -146,7 +166,7 @@ func WriteJSON(w io.Writer, r Report) error {
 	return enc.Encode(r)
 }
 
-func sameServerVersion(ctx context.Context, baseline, candidateDB *sql.DB) (string, error) {
+func sameServerVersion(ctx context.Context, baseline, candidateDB shadowdata.DB) (string, error) {
 	var baselineVersion, candidateVersion string
 	if err := baseline.QueryRowContext(ctx, "SELECT VERSION()").Scan(&baselineVersion); err != nil {
 		return "", fmt.Errorf("query baseline MySQL version: %w", err)
@@ -160,12 +180,12 @@ func sameServerVersion(ctx context.Context, baseline, candidateDB *sql.DB) (stri
 	return baselineVersion, nil
 }
 
-func identicalSnapshots(ctx context.Context, baseline, candidateDB *sql.DB, chunk int) (measure.SnapshotGate, error) {
-	b, err := snapshot.Compute(ctx, baseline, "baseline", chunk)
+func identicalSnapshots(ctx context.Context, baseline, candidateDB shadowdata.DB, tables []string) (measure.SnapshotGate, error) {
+	b, err := shadowdata.Compute(ctx, baseline, tables)
 	if err != nil {
 		return measure.SnapshotGate{}, fmt.Errorf("compute baseline snapshot: %w", err)
 	}
-	c, err := snapshot.Compute(ctx, candidateDB, "candidate", chunk)
+	c, err := shadowdata.Compute(ctx, candidateDB, tables)
 	if err != nil {
 		return measure.SnapshotGate{}, fmt.Errorf("compute candidate snapshot: %w", err)
 	}
@@ -174,12 +194,12 @@ func identicalSnapshots(ctx context.Context, baseline, candidateDB *sql.DB, chun
 			measure.ErrSnapshotMismatch, b.Rows, b.Digest, c.Rows, c.Digest)
 	}
 	return measure.SnapshotGate{
-		Baseline:  measure.SideSnapshot{Name: b.Name, Rows: b.Rows, Digest: b.Digest},
-		Candidate: measure.SideSnapshot{Name: c.Name, Rows: c.Rows, Digest: c.Digest},
+		Baseline:  measure.SideSnapshot{Name: "baseline", Rows: b.Rows, Digest: b.Digest},
+		Candidate: measure.SideSnapshot{Name: "candidate", Rows: c.Rows, Digest: c.Digest},
 	}, nil
 }
 
-func requireSchema(ctx context.Context, db *sql.DB, spec candidate.Spec) error {
+func requireSchema(ctx context.Context, db shadowdata.DB, spec candidate.Spec) error {
 	var tableCount int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, spec.Table).Scan(&tableCount); err != nil {
@@ -206,8 +226,8 @@ type indexColumn struct {
 	Direction string
 }
 
-func ensureCandidateIndex(ctx context.Context, db *sql.DB, p Prepared) (bool, error) {
-	actual, err := existingIndex(ctx, db, p.Spec.IndexName)
+func ensureCandidateIndex(ctx context.Context, db shadowdata.DB, p Prepared) (bool, error) {
+	actual, err := existingIndex(ctx, db, p.Spec.Table, p.Spec.IndexName)
 	if err != nil {
 		return false, err
 	}
@@ -224,9 +244,9 @@ func ensureCandidateIndex(ctx context.Context, db *sql.DB, p Prepared) (bool, er
 	return true, nil
 }
 
-func existingIndex(ctx context.Context, db *sql.DB, name string) ([]indexColumn, error) {
+func existingIndex(ctx context.Context, db shadowdata.DB, table, name string) ([]indexColumn, error) {
 	rows, err := db.QueryContext(ctx, `SELECT COLUMN_NAME, COLLATION FROM information_schema.STATISTICS
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND INDEX_NAME = ? ORDER BY SEQ_IN_INDEX`, name)
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? ORDER BY SEQ_IN_INDEX`, table, name)
 	if err != nil {
 		return nil, fmt.Errorf("inspect candidate index %q: %w", name, err)
 	}

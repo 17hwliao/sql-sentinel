@@ -7,3 +7,13 @@ webhook-deliveries*/
 *.exe
 *.test
 *.out
+
+# Runtime secrets and local helper outputs
+.env
+.env.*
+*.pem
+*.key
+__pycache__/
+*.pyc
+secrets/
+backups/

@@ -17,6 +17,16 @@ type MemoryStore struct {
 	seq     int
 }
 
+func cloneJob(job Job) Job {
+	job.SQL = append([]byte(nil), job.SQL...)
+	job.CandidateSpec = append([]byte(nil), job.CandidateSpec...)
+	if job.CompletedAt != nil {
+		v := *job.CompletedAt
+		job.CompletedAt = &v
+	}
+	return job
+}
+
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{jobs: map[string]Job{}, byDeliv: map[string]string{}, outbox: map[string]OutboxRecord{}}
 }
@@ -28,14 +38,18 @@ func (s *MemoryStore) Receive(_ context.Context, in ReceiveInput) (ReceiveResult
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id, ok := s.byDeliv[in.DeliveryID]; ok {
-		return ReceiveResult{Job: s.jobs[id], Duplicate: true}, nil
+		if !sameDelivery(s.jobs[id], in) {
+			return ReceiveResult{}, ErrDeliveryConflict
+		}
+		return ReceiveResult{Job: cloneJob(s.jobs[id]), Duplicate: true}, nil
 	}
 	now := time.Now().UTC()
 	s.seq++
 	jobID := newID("job", now, s.seq)
 	eventID := newID("event", now, s.seq)
 	job := Job{ID: jobID, DeliveryID: in.DeliveryID, PRNumber: in.PRNumber,
-		SQL: append([]byte(nil), in.SQL...), CandidateSpec: append([]byte(nil), in.CandidateSpec...),
+		Options: in.Options.normalized(),
+		SQL:     append([]byte(nil), in.SQL...), CandidateSpec: append([]byte(nil), in.CandidateSpec...),
 		SQLSHA256: digest(in.SQL), CandidateSpecSHA256: digest(in.CandidateSpec), Status: Received,
 		Attempts: 0, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now}
 	s.jobs[jobID] = job
@@ -45,7 +59,7 @@ func (s *MemoryStore) Receive(_ context.Context, in ReceiveInput) (ReceiveResult
 	job.Status = Queued
 	job.UpdatedAt = now
 	s.jobs[jobID] = job
-	return ReceiveResult{Job: job}, nil
+	return ReceiveResult{Job: cloneJob(job)}, nil
 }
 
 func (s *MemoryStore) Claim(_ context.Context, jobID, owner string, now time.Time, lease time.Duration) (Job, bool, error) {
@@ -56,16 +70,19 @@ func (s *MemoryStore) Claim(_ context.Context, jobID, owner string, now time.Tim
 		return Job{}, false, ErrNotFound
 	}
 	if job.Status == Completed || job.Status == Rejected || job.Status == DeadLetter {
-		return job, false, nil
+		return cloneJob(job), false, nil
 	}
-	if job.Status == Running && job.LeaseUntil.After(now) && job.LeaseOwner != owner {
-		return job, false, nil
+	if job.Status == Running && job.LeaseUntil.After(now) {
+		return cloneJob(job), false, nil
+	}
+	if (job.Status == Queued || job.Status == Retrying) && job.NextAttemptAt.After(now) {
+		return cloneJob(job), false, nil
 	}
 	job.Status, job.LeaseOwner, job.LeaseUntil = Running, owner, now.Add(lease)
 	job.Attempts++
 	job.UpdatedAt = now
 	s.jobs[jobID] = job
-	return job, true, nil
+	return cloneJob(job), true, nil
 }
 
 func (s *MemoryStore) Complete(_ context.Context, jobID, owner string, now time.Time) (bool, error) {
@@ -123,7 +140,7 @@ func (s *MemoryStore) Get(_ context.Context, deliveryID string) (Job, error) {
 	if !ok {
 		return Job{}, ErrNotFound
 	}
-	return s.jobs[id], nil
+	return cloneJob(s.jobs[id]), nil
 }
 
 func (s *MemoryStore) PendingOutbox(_ context.Context, limit int, now time.Time) ([]OutboxRecord, error) {
@@ -135,6 +152,7 @@ func (s *MemoryStore) PendingOutbox(_ context.Context, limit int, now time.Time)
 	result := make([]OutboxRecord, 0, limit)
 	for _, record := range s.outbox {
 		if record.Payload != nil && !record.AvailableAt.After(now) {
+			record.Payload = append([]byte(nil), record.Payload...)
 			result = append(result, record)
 			if len(result) == limit {
 				break

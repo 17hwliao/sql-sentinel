@@ -30,9 +30,43 @@ const (
 
 var ErrNotFound = errors.New("kafka workflow job not found")
 var ErrLeaseLost = errors.New("kafka workflow lease lost")
+var ErrLeaseBusy = errors.New("kafka workflow lease busy")
 var ErrRejected = errors.New("kafka workflow job rejected")
+var ErrDeliveryConflict = errors.New("delivery identifier already belongs to different input")
+var ErrBacklogFull = errors.New("job backlog limit reached")
+
+func sameDelivery(job Job, in ReceiveInput) bool {
+	left, right := job.Options, in.Options.normalized()
+	left.TraceParent, left.TraceState, right.TraceParent, right.TraceState = "", "", "", ""
+	return job.PRNumber == in.PRNumber && job.SQLSHA256 == digest(in.SQL) && job.CandidateSpecSHA256 == digest(in.CandidateSpec) && left == right
+}
+
+type JobOptions struct {
+	TraceParent       string `json:"traceparent,omitempty"`
+	TraceState        string `json:"tracestate,omitempty"`
+	TenantID          string `json:"tenant_id"`
+	ProjectID         string `json:"project_id"`
+	Actor             string `json:"actor"`
+	Benchmark         bool   `json:"benchmark"`
+	ApprovedJobID     string `json:"approved_job_id,omitempty"`
+	ApprovalReportSHA string `json:"approval_report_sha,omitempty"`
+}
+
+func (o JobOptions) normalized() JobOptions {
+	if o.TenantID == "" {
+		o.TenantID = "operator"
+	}
+	if o.ProjectID == "" {
+		o.ProjectID = "default"
+	}
+	if o.Actor == "" {
+		o.Actor = "operator"
+	}
+	return o
+}
 
 type Job struct {
+	Options             JobOptions `json:"-"`
 	ID                  string     `json:"job_id"`
 	DeliveryID          string     `json:"delivery_id"`
 	PRNumber            int        `json:"pr_number"`
@@ -52,10 +86,12 @@ type Job struct {
 }
 
 type ReceiveInput struct {
+	Options       JobOptions
 	DeliveryID    string
 	PRNumber      int
 	SQL           []byte
 	CandidateSpec []byte
+	SourceJSON    []byte
 }
 
 type ReceiveResult struct {

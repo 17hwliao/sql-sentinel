@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sqlsentinel/internal/telemetry"
 	"strings"
 	"time"
 )
@@ -104,7 +106,7 @@ func NewHTTPEmbeddingProvider(cfg HTTPEmbeddingConfig) (*HTTPEmbeddingProvider, 
 	}
 	client := cfg.Client
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = &http.Client{Timeout: 30 * time.Second, Transport: telemetry.Transport{}}
 	}
 	return &HTTPEmbeddingProvider{endpoint: cfg.Endpoint, apiKey: cfg.APIKey, model: cfg.Model, dimension: cfg.Dimension, client: client}, nil
 }
@@ -140,7 +142,11 @@ func (p *HTTPEmbeddingProvider) Embed(ctx context.Context, texts []string) ([][]
 			Embedding []float64 `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20+1))
+	if readErr != nil || len(raw) > 8<<20 {
+		return nil, ErrUnavailable
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("decode embedding response: %w", err)
 	}
 	if len(decoded.Data) != len(texts) {
@@ -148,7 +154,7 @@ func (p *HTTPEmbeddingProvider) Embed(ctx context.Context, texts []string) ([][]
 	}
 	result := make([][]float64, len(texts))
 	for _, item := range decoded.Data {
-		if item.Index < 0 || item.Index >= len(result) || len(item.Embedding) != p.dimension {
+		if item.Index < 0 || item.Index >= len(result) || result[item.Index] != nil || !validVector(item.Embedding, p.dimension) {
 			return nil, fmt.Errorf("%w: invalid embedding index or dimension", ErrUnavailable)
 		}
 		result[item.Index] = item.Embedding

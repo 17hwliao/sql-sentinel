@@ -75,10 +75,10 @@ func Validate(spec Spec) error {
 		if err := validateIdentifier(fmt.Sprintf("columns[%d].name", i), col.Name); err != nil {
 			return err
 		}
-		if _, ok := seen[col.Name]; ok {
+		if _, ok := seen[strings.ToLower(col.Name)]; ok {
 			return fmt.Errorf("columns[%d].name duplicates %q", i, col.Name)
 		}
-		seen[col.Name] = struct{}{}
+		seen[strings.ToLower(col.Name)] = struct{}{}
 		if direction := strings.ToUpper(col.Direction); direction != "" && direction != "ASC" && direction != "DESC" {
 			return fmt.Errorf("columns[%d].direction must be ASC or DESC", i)
 		}

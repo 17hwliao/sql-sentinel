@@ -29,15 +29,25 @@ func Admit(sql string) Result {
 		return reject("not_readonly_select")
 	}
 	joined := " " + strings.Join(tokens, " ") + " "
+	codeTokens := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		if !strings.HasPrefix(token, "'") {
+			codeTokens = append(codeTokens, token)
+		}
+	}
+	codeText := " " + strings.Join(codeTokens, " ") + " "
 	for _, forbidden := range []struct{ code, phrase string }{
 		{"locking_read", " FOR UPDATE "}, {"locking_read", " LOCK IN SHARE MODE "},
 		{"write_or_ddl_statement", " INSERT "}, {"write_or_ddl_statement", " UPDATE "}, {"write_or_ddl_statement", " DELETE "},
 		{"write_or_ddl_statement", " CREATE "}, {"write_or_ddl_statement", " ALTER "}, {"write_or_ddl_statement", " DROP "},
 		{"select_into_file", " INTO OUTFILE "}, {"select_into_file", " INTO DUMPFILE "},
 	} {
-		if strings.Contains(joined, forbidden.phrase) {
+		if strings.Contains(codeText, forbidden.phrase) {
 			return reject(forbidden.code)
 		}
+	}
+	if _, err := Inspect(sql); err != nil {
+		return reject(err.Error())
 	}
 	signals := []string{}
 	if hasSelectStar(tokens) {

@@ -23,9 +23,18 @@ func receiveTestJob(t *testing.T, store *MemoryStore) ReceiveResult {
 func TestReceiveIsIdempotentAndOutboxIsSafeReference(t *testing.T) {
 	store := NewMemoryStore()
 	first := receiveTestJob(t, store)
-	second, err := store.Receive(context.Background(), ReceiveInput{DeliveryID: "delivery-1", PRNumber: 42, SQL: []byte("different"), CandidateSpec: []byte("different")})
+	second, err := store.Receive(context.Background(), ReceiveInput{DeliveryID: "delivery-1", PRNumber: 42, SQL: first.Job.SQL, CandidateSpec: first.Job.CandidateSpec})
 	if err != nil || !second.Duplicate || second.Job.ID != first.Job.ID {
 		t.Fatalf("duplicate receive = %+v, err=%v", second, err)
+	}
+	for _, input := range []ReceiveInput{
+		{DeliveryID: "delivery-1", PRNumber: 43, SQL: first.Job.SQL, CandidateSpec: first.Job.CandidateSpec},
+		{DeliveryID: "delivery-1", PRNumber: 42, SQL: []byte("different"), CandidateSpec: first.Job.CandidateSpec},
+		{DeliveryID: "delivery-1", PRNumber: 42, SQL: first.Job.SQL, CandidateSpec: []byte("different")},
+	} {
+		if _, err := store.Receive(context.Background(), input); !errors.Is(err, ErrDeliveryConflict) {
+			t.Fatalf("changed input accepted under existing delivery: %v", err)
+		}
 	}
 	rows, err := store.PendingOutbox(context.Background(), 10, time.Now().Add(time.Second))
 	if err != nil || len(rows) != 1 {

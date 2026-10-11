@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sqlsentinel/internal/configenv"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,6 +29,9 @@ type config struct {
 }
 
 func main() {
+	if err := configenv.LoadSecretFiles(); err != nil {
+		log.Fatal("secret_configuration_failed")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(os.Getenv, ctx); err != nil {
@@ -47,11 +51,17 @@ func run(lookup func(string) string, ctx context.Context) error {
 	defer db.Close()
 	writer := segmentkafka.NewWriter(segmentkafka.WriterConfig{Brokers: cfg.Brokers, Balancer: &segmentkafka.Hash{}})
 	defer writer.Close()
-	relay := workflow.Relay{Store: &workflow.MySQLStore{DB: db}, Publisher: workflow.KafkaWriter{Writer: writer}, BatchSize: cfg.BatchSize}
+	store := &workflow.MySQLStore{DB: db}
+	relay := workflow.Relay{Store: store, Publisher: workflow.KafkaWriter{Writer: writer}, BatchSize: cfg.BatchSize}
 	log.Printf("sql sentinel relay started interval=%s batch_size=%d", cfg.Interval, cfg.BatchSize)
-	return workflow.RunPolling(ctx, cfg.Interval, relay.RunOnce, func(result workflow.PollResult) {
+	return workflow.RunPolling(ctx, cfg.Interval, func(ctx context.Context) (int, error) {
+		if _, err := store.RecoverExpired(ctx, time.Now().UTC(), cfg.BatchSize); err != nil {
+			return 0, err
+		}
+		return relay.RunOnce(ctx)
+	}, func(result workflow.PollResult) {
 		if result.Err != nil {
-			log.Printf("sql sentinel relay scan failed published=%d error=%v", result.Published, result.Err)
+			log.Printf("sql sentinel relay scan failed published=%d", result.Published)
 		} else if result.Published > 0 {
 			log.Printf("sql sentinel relay published=%d", result.Published)
 		}

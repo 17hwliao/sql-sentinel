@@ -1,4 +1,12 @@
+> **2026-10-10 后端版本**：通用MySQL、审批/L2-L3门禁、持久RAG见 [后端扩展说明](docs/backend-expansion.md)；有限Eino图、SQL改写、mTLS Verifier、ES历史先验、PostgreSQL/写成本实验见 [新增运行契约](docs/backend-roadmap.md)。以下规划/阶段记录保留历史口径，真实云/模型/L3/GitHub仍需资料；没有自动生产DDL或已证明生产性能的承诺。
+
 # SQL Sentinel：带影子库验证闭环的 SQL 诊断与 PR 评审 Agent
+
+联合部署模板由 [AgentMesh 仓库](https://github.com/17hwliao/AgentMesh/tree/master/deployments/backend-stack) 托管；两个仓库同级克隆后，在 AgentMesh 中运行 `python scripts/export-backend-stack.py --out ../deploy`。
+
+> **2026-10-11 本地改进**：SQL AST/反例、租约状态验证、RAG 三条件对照与局部基线见 [本地改进契约](docs/local-improvements.md)。本轮源码更新不替换既有发布包。
+
+> **2026-10 当前范围**：`cmd/api` → MySQL outbox → Kafka relay/worker → 隔离 MySQL 验证 → 持久报告 API 已接通。支持手工单条只读 SELECT/WITH，及原生 GitHub PR webhook 获取 head 完整 `.sql` 文件中的受影响只读语句；可选更新一条带任务标记的 PR 评论。Eino 经 AgentMesh 流式接口生成并校验索引候选。当前自动链路仅提供 **orders-v1 的 L1 计划证据**，不证明性能提升。见 [当前后端契约](docs/backend-release.md)。下文总体架构、migration/Go Raw SQL/L2-L3、多轮工具决策是规划或独立实验，不能当作当前生产能力。
 
 > 文档导航：[docs/README.md](docs/README.md)。该导航保留并分类现有规格、阶段记录与证据，不替代原始文档。
 

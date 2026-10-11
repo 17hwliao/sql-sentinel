@@ -1,0 +1,6 @@
+syntax = "proto3";
+package sqlsentinel.verifier.v1;
+option go_package = "sqlsentinel/internal/verifierrpc";
+message Request {string job_id=1;string lease_owner=2;int32 attempt=3;}
+message Progress {string phase=1;bool completed=2;}
+service Verifier {rpc Run(Request) returns(stream Progress);}

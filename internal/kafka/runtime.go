@@ -68,6 +68,8 @@ func (w *Worker) Handle(ctx context.Context, message Message) error {
 		return fmt.Errorf("decode event: %w", err)
 	}
 	cfg := w.Config.withDefaults()
+	// A new fencing identity for each claim, including restarts and retries.
+	cfg.Owner = newID("claim", time.Now(), 0)
 	if w.Now == nil {
 		w.Now = time.Now
 	}
@@ -76,9 +78,56 @@ func (w *Worker) Handle(ctx context.Context, message Message) error {
 		return err
 	}
 	if !claimed {
+		if job.Status == Completed || job.Status == Rejected || job.Status == DeadLetter {
+			return nil
+		}
+		return ErrLeaseBusy
+	}
+	if job.Attempts > cfg.MaxAttempts {
+		updated, err := w.Store.DeadLetter(ctx, job.ID, cfg.Owner, w.Now().UTC(), "attempts_exhausted")
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return ErrLeaseLost
+		}
 		return nil
 	}
-	err = w.Runner(ctx, job)
+	if job.DeliveryID != event.DeliveryID || digest(job.SQL) != job.SQLSHA256 || digest(job.CandidateSpec) != job.CandidateSpecSHA256 {
+		err = ErrRejected
+	} else {
+		run, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if renew, ok := w.Store.(interface {
+				Renew(context.Context, string, string, time.Time, time.Duration) (bool, error)
+			}); ok {
+				ticker := time.NewTicker(cfg.Lease / 3)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-run.Done():
+						return
+					case <-ticker.C:
+						step, stop := context.WithTimeout(run, cfg.Lease/3)
+						updated, renewErr := renew.Renew(step, job.ID, cfg.Owner, time.Now().UTC(), cfg.Lease)
+						stop()
+						if renewErr != nil || !updated {
+							cancel()
+							return
+						}
+					}
+				}
+			}
+		}()
+		err = w.Runner(run, job)
+		if run.Err() != nil {
+			err = ErrLeaseLost
+		}
+		cancel()
+		<-done
+	}
 	now := w.Now().UTC()
 	if err == nil {
 		updated, finishErr := w.Store.Complete(ctx, job.ID, cfg.Owner, now)
@@ -143,11 +192,28 @@ func (w *Worker) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		err = w.Handle(ctx, message)
-		<-w.sem
-		if err != nil {
-			return err
+		for {
+			err = w.Handle(ctx, message)
+			if err == nil {
+				break
+			}
+			if _, decodeErr := DecodeEvent(message.Value); decodeErr != nil || errors.Is(err, ErrNotFound) {
+				if poison, ok := w.Store.(interface {
+					Quarantine(context.Context, Message) error
+				}); ok {
+					if poison.Quarantine(ctx, message) == nil {
+						break
+					}
+				}
+			}
+			select {
+			case <-ctx.Done():
+				<-w.sem
+				return ctx.Err()
+			case <-time.After(time.Second):
+			}
 		}
+		<-w.sem
 		if err = w.Source.Commit(ctx, message); err != nil {
 			return err
 		}
@@ -155,11 +221,13 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func truncateError(err error) string {
-	s := err.Error()
-	if len(s) > 1024 {
-		return s[:1024]
+	if errors.Is(err, ErrRejected) {
+		return "input_rejected"
 	}
-	return s
+	if errors.Is(err, ErrLeaseLost) {
+		return "lease_lost"
+	}
+	return "runner_failed"
 }
 
 // StatusHandler intentionally serializes safeJob, not Job.

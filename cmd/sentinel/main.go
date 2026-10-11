@@ -7,9 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"sqlsentinel/internal/configenv"
 
 	"sqlsentinel/internal/dataset"
 )
@@ -125,6 +127,9 @@ agentmesh-bridge-test 参数:
 `
 
 func main() {
+	if err := configenv.LoadSecretFiles(); err != nil {
+		fatal(err)
+	}
 	if len(os.Args) < 2 {
 		fmt.Print(usage)
 		os.Exit(2)
@@ -300,7 +305,18 @@ func seedOne(ctx context.Context, name string, params dataset.Params) error {
 
 // open 建连并等待实例就绪。单连接：造数与测量都要求串行，不需要连接池。
 func open(ctx context.Context, name string) (*sql.DB, error) {
-	db, err := sql.Open("mysql", targets[name]+dsnOptions)
+	dsn := os.Getenv("SQL_SENTINEL_" + strings.ToUpper(name) + "_DSN")
+	if dsn == "" {
+		dsn = targets[name] + dsnOptions
+	}
+	config, err := mysqldriver.ParseDSN(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid database configuration")
+	}
+	config.ParseTime = true
+	config.Loc = time.UTC
+	config.MultiStatements = false
+	db, err := sql.Open("mysql", config.FormatDSN())
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +332,12 @@ func open(ctx context.Context, name string) (*sql.DB, error) {
 			db.Close()
 			return nil, fmt.Errorf("连接超时（容器是否已 healthy？）: %w", err)
 		}
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			db.Close()
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 

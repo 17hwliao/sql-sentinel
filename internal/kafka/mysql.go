@@ -3,8 +3,11 @@ package kafka
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"strings"
 	"time"
 )
@@ -15,6 +18,65 @@ import (
 type MySQLStore struct{ DB *sql.DB }
 
 const Schema = `
+CREATE TABLE IF NOT EXISTS sql_sentinel_prior_outbox (
+ job_id CHAR(64) NOT NULL PRIMARY KEY,document JSON NOT NULL,attempts INT NOT NULL DEFAULT 0,
+ available_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),published_at DATETIME(6) NULL,
+ expires_at DATETIME(6) NOT NULL,KEY ix_prior_ready(published_at,available_at)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS sql_sentinel_receive_guard (
+ guard_id INT NOT NULL PRIMARY KEY
+) ENGINE=InnoDB;
+INSERT IGNORE INTO sql_sentinel_receive_guard(guard_id) VALUES(1);
+CREATE TABLE IF NOT EXISTS sql_sentinel_job_options (
+ job_id CHAR(64) NOT NULL PRIMARY KEY, options JSON NOT NULL
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS sql_sentinel_approvals (
+ job_id CHAR(64) NOT NULL PRIMARY KEY, report_sha256 CHAR(64) NOT NULL,
+ candidate_sha256 CHAR(64) NOT NULL, sql_sha256 CHAR(64) NOT NULL,
+ decision VARCHAR(16) NOT NULL, actor VARCHAR(64) NOT NULL, reason VARCHAR(512) NOT NULL,
+ created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS sql_sentinel_audit (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ tenant_id VARCHAR(64) NOT NULL,project_id VARCHAR(64) NOT NULL,actor VARCHAR(64) NOT NULL,
+ action VARCHAR(64) NOT NULL,resource_id VARCHAR(128) NOT NULL,metadata JSON NOT NULL,
+ created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+ KEY idx_audit_scope(tenant_id,project_id,id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS sql_sentinel_sessions (
+ token_id CHAR(32) NOT NULL PRIMARY KEY,subject_id VARCHAR(64) NOT NULL,
+ tenant_id VARCHAR(64) NOT NULL,project_id VARCHAR(64) NOT NULL,role_name VARCHAR(32) NOT NULL,
+ expires_at DATETIME(6) NOT NULL,revoked_at DATETIME(6) NULL
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS rag_scopes (
+ tenant_id VARCHAR(64) NOT NULL,project_id VARCHAR(64) NOT NULL,
+ PRIMARY KEY(tenant_id,project_id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS rag_documents (
+ tenant_id VARCHAR(64) NOT NULL,project_id VARCHAR(64) NOT NULL,document_id VARCHAR(128) NOT NULL,
+ document_sha256 CHAR(64) NOT NULL,version VARCHAR(128) NOT NULL,
+ PRIMARY KEY(tenant_id,project_id,document_id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS rag_chunks (
+ chunk_id CHAR(32) NOT NULL PRIMARY KEY,tenant_id VARCHAR(64) NOT NULL,project_id VARCHAR(64) NOT NULL,
+ document_id VARCHAR(128) NOT NULL,chunk JSON NOT NULL,vector JSON NOT NULL,
+ KEY idx_rag_scope(tenant_id,project_id,document_id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS sql_sentinel_sources (
+ job_id CHAR(64) NOT NULL PRIMARY KEY, source JSON NOT NULL,
+ comment_published_at DATETIME(6) NULL, comment_state VARCHAR(32) NOT NULL DEFAULT '',
+ KEY idx_comment_pending(comment_published_at)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS sql_sentinel_poison (
+ topic VARCHAR(249) NOT NULL, partition_id INT NOT NULL, offset_id BIGINT NOT NULL,
+ payload_sha256 CHAR(64) NOT NULL, reason VARCHAR(64) NOT NULL,
+ created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+ PRIMARY KEY(topic,partition_id,offset_id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS sql_sentinel_reports (
+ job_id CHAR(64) NOT NULL PRIMARY KEY, report JSON NOT NULL,
+ created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS sql_sentinel_jobs (
   job_id CHAR(64) NOT NULL PRIMARY KEY,
   delivery_id VARCHAR(64) NOT NULL UNIQUE,
@@ -82,9 +144,32 @@ func (s *MySQLStore) Receive(ctx context.Context, in ReceiveInput) (ReceiveResul
 	if in.DeliveryID == "" || in.PRNumber < 1 || len(in.SQL) == 0 || len(in.CandidateSpec) == 0 {
 		return ReceiveResult{}, errors.New("invalid receive input")
 	}
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	in.Options.TraceParent, in.Options.TraceState = carrier.Get("traceparent"), carrier.Get("tracestate")
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return ReceiveResult{}, err
+	}
+	defer tx.Rollback()
+	var guard int
+	if err = tx.QueryRowContext(ctx, "SELECT guard_id FROM sql_sentinel_receive_guard WHERE guard_id=1 FOR UPDATE").Scan(&guard); err != nil {
+		return ReceiveResult{}, err
+	}
+	if prior, e := s.getTx(ctx, tx, "delivery_id=?", in.DeliveryID); e == nil {
+		if !sameDelivery(prior, in) {
+			return ReceiveResult{}, ErrDeliveryConflict
+		}
+		return ReceiveResult{Job: prior, Duplicate: true}, nil
+	} else if !errors.Is(e, ErrNotFound) {
+		return ReceiveResult{}, e
+	}
+	var pending int
+	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM (SELECT job_id FROM sql_sentinel_jobs WHERE status IN ('RECEIVED','QUEUED','RUNNING','RETRYING') LIMIT 1000) backlog").Scan(&pending); err != nil {
+		return ReceiveResult{}, err
+	}
+	if pending >= 1000 {
+		return ReceiveResult{}, ErrBacklogFull
 	}
 	now := time.Now().UTC()
 	jobID, eventID := newID("job", now, int(now.Nanosecond())), newID("event", now, int(now.Nanosecond())+1)
@@ -95,6 +180,9 @@ func (s *MySQLStore) Receive(ctx context.Context, in ReceiveInput) (ReceiveResul
 		_ = tx.Rollback()
 		if isDuplicate(err) {
 			job, getErr := s.Get(ctx, in.DeliveryID)
+			if getErr == nil && !sameDelivery(job, in) {
+				return ReceiveResult{}, ErrDeliveryConflict
+			}
 			return ReceiveResult{Job: job, Duplicate: getErr == nil}, getErr
 		}
 		return ReceiveResult{}, err
@@ -102,6 +190,26 @@ func (s *MySQLStore) Receive(ctx context.Context, in ReceiveInput) (ReceiveResul
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sql_sentinel_job_history (job_id,status,created_at) VALUES (?,?,?)`, jobID, Received, now); err != nil {
 		_ = tx.Rollback()
 		return ReceiveResult{}, err
+	}
+	optionsRaw, _ := json.Marshal(in.Options.normalized())
+	if _, err = tx.ExecContext(ctx, "INSERT INTO sql_sentinel_job_options(job_id,options) VALUES (?,?)", jobID, optionsRaw); err != nil {
+		tx.Rollback()
+		return ReceiveResult{}, err
+	}
+	options := in.Options.normalized()
+	action := "job.created"
+	if options.Benchmark {
+		action = "benchmark.created"
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO sql_sentinel_audit(tenant_id,project_id,actor,action,resource_id,metadata) VALUES (?,?,?,?,?,?)", options.TenantID, options.ProjectID, options.Actor, action, jobID, optionsRaw); err != nil {
+		tx.Rollback()
+		return ReceiveResult{}, err
+	}
+	if len(in.SourceJSON) > 0 {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO sql_sentinel_sources (job_id,source) VALUES (?,?)`, jobID, in.SourceJSON); err != nil {
+			_ = tx.Rollback()
+			return ReceiveResult{}, err
+		}
 	}
 	payload, _ := (Event{SchemaVersion: 1, EventID: eventID, JobID: jobID, DeliveryID: in.DeliveryID, Attempt: 1}).MarshalSafe()
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sql_sentinel_outbox (event_id,job_id,topic,payload,available_at,created_at) VALUES (?,?,?,?,?,?)`, eventID, jobID, "sql-sentinel.jobs", payload, now, now); err != nil {
@@ -224,16 +332,23 @@ func (s *MySQLStore) Get(ctx context.Context, deliveryID string) (Job, error) {
 func (s *MySQLStore) getByID(ctx context.Context, jobID string) (Job, error) {
 	return s.get(ctx, `job_id=?`, jobID)
 }
+func (s *MySQLStore) GetByID(ctx context.Context, jobID string) (Job, error) {
+	return s.getByID(ctx, jobID)
+}
 
 func (s *MySQLStore) getTx(ctx context.Context, tx *sql.Tx, where string, arg any) (Job, error) {
 	var j Job
 	var completed, lease sql.NullTime
-	err := tx.QueryRowContext(ctx, `SELECT job_id,delivery_id,pr_number,sql_text,candidate_spec,sql_sha256,candidate_spec_sha256,status,attempts,next_attempt_at,lease_owner,lease_until,last_error,created_at,updated_at,completed_at FROM sql_sentinel_jobs WHERE `+where, arg).
-		Scan(&j.ID, &j.DeliveryID, &j.PRNumber, &j.SQL, &j.CandidateSpec, &j.SQLSHA256, &j.CandidateSpecSHA256, &j.Status, &j.Attempts, &j.NextAttemptAt, &j.LeaseOwner, &lease, &j.LastError, &j.CreatedAt, &j.UpdatedAt, &completed)
+	var optionsRaw []byte
+	err := tx.QueryRowContext(ctx, jobSelect+where, arg).
+		Scan(&j.ID, &j.DeliveryID, &j.PRNumber, &j.SQL, &j.CandidateSpec, &j.SQLSHA256, &j.CandidateSpecSHA256, &j.Status, &j.Attempts, &j.NextAttemptAt, &j.LeaseOwner, &lease, &j.LastError, &j.CreatedAt, &j.UpdatedAt, &completed, &optionsRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNotFound
 	}
 	if err != nil {
+		return Job{}, err
+	}
+	if err = json.Unmarshal(optionsRaw, &j.Options); err != nil {
 		return Job{}, err
 	}
 	if lease.Valid {
@@ -248,12 +363,16 @@ func (s *MySQLStore) getTx(ctx context.Context, tx *sql.Tx, where string, arg an
 func (s *MySQLStore) get(ctx context.Context, where string, arg any) (Job, error) {
 	var j Job
 	var completed, lease sql.NullTime
-	err := s.DB.QueryRowContext(ctx, `SELECT job_id,delivery_id,pr_number,sql_text,candidate_spec,sql_sha256,candidate_spec_sha256,status,attempts,next_attempt_at,lease_owner,lease_until,last_error,created_at,updated_at,completed_at FROM sql_sentinel_jobs WHERE `+where, arg).
-		Scan(&j.ID, &j.DeliveryID, &j.PRNumber, &j.SQL, &j.CandidateSpec, &j.SQLSHA256, &j.CandidateSpecSHA256, &j.Status, &j.Attempts, &j.NextAttemptAt, &j.LeaseOwner, &lease, &j.LastError, &j.CreatedAt, &j.UpdatedAt, &completed)
+	var optionsRaw []byte
+	err := s.DB.QueryRowContext(ctx, jobSelect+where, arg).
+		Scan(&j.ID, &j.DeliveryID, &j.PRNumber, &j.SQL, &j.CandidateSpec, &j.SQLSHA256, &j.CandidateSpecSHA256, &j.Status, &j.Attempts, &j.NextAttemptAt, &j.LeaseOwner, &lease, &j.LastError, &j.CreatedAt, &j.UpdatedAt, &completed, &optionsRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNotFound
 	}
 	if err != nil {
+		return Job{}, err
+	}
+	if err = json.Unmarshal(optionsRaw, &j.Options); err != nil {
 		return Job{}, err
 	}
 	if lease.Valid {
@@ -264,6 +383,8 @@ func (s *MySQLStore) get(ctx context.Context, where string, arg any) (Job, error
 	}
 	return j, nil
 }
+
+const jobSelect = `SELECT job_id,delivery_id,pr_number,sql_text,candidate_spec,sql_sha256,candidate_spec_sha256,status,attempts,next_attempt_at,lease_owner,lease_until,last_error,created_at,updated_at,completed_at,COALESCE((SELECT options FROM sql_sentinel_job_options o WHERE o.job_id=sql_sentinel_jobs.job_id),JSON_OBJECT('tenant_id','operator','project_id','default','actor','operator','benchmark',false)) FROM sql_sentinel_jobs WHERE `
 
 func (s *MySQLStore) PendingOutbox(ctx context.Context, limit int, now time.Time) ([]OutboxRecord, error) {
 	if limit < 1 {

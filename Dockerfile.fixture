@@ -1,0 +1,11 @@
+ARG GO_BUILD_IMAGE=golang:1.26.9-alpine
+FROM ${GO_BUILD_IMAGE} AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY cmd/fixture-server ./cmd/fixture-server
+RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -o /out/fixture-server ./cmd/fixture-server
+FROM alpine:3.21
+RUN adduser -D -H -u 10001 fixture
+COPY --from=build /out/fixture-server /usr/local/bin/
+USER fixture
+CMD ["fixture-server"]

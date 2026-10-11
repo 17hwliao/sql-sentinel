@@ -3,8 +3,17 @@ package agentgraph
 import (
 	"context"
 	"errors"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"io"
+	"net/http"
+	"sqlsentinel/internal/telemetry"
+	"strings"
+	"time"
 
 	openaimodel "github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 )
@@ -31,7 +40,20 @@ func NewEinoGraph(node DraftNode) (DraftNode, error) {
 }
 
 func (n einoGraphNode) Draft(ctx context.Context, prompt string) (string, error) {
-	return n.runnable.Invoke(ctx, prompt)
+	callback := callbacks.NewHandlerBuilder().
+		OnStartFn(func(ctx context.Context, _ *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
+			ctx, _ = otel.Tracer("eino.callbacks").Start(ctx, "eino.graph.node")
+			return ctx
+		}).OnEndFn(func(ctx context.Context, _ *callbacks.RunInfo, _ callbacks.CallbackOutput) context.Context {
+		trace.SpanFromContext(ctx).End()
+		return ctx
+	}).OnErrorFn(func(ctx context.Context, _ *callbacks.RunInfo, _ error) context.Context {
+		span := trace.SpanFromContext(ctx)
+		span.SetStatus(codes.Error, "graph_failed")
+		span.End()
+		return ctx
+	}).Build()
+	return n.runnable.Invoke(ctx, prompt, compose.WithCallbacks(callback))
 }
 
 type openAINode struct {
@@ -48,6 +70,7 @@ func NewOpenAINode(ctx context.Context, apiKey, modelName, baseURL string) (Draf
 	temperature := float32(0)
 	config := &openaimodel.ChatModelConfig{
 		APIKey: apiKey, Model: modelName, Temperature: &temperature,
+		HTTPClient: &http.Client{Timeout: 90 * time.Second, Transport: telemetry.Transport{}},
 	}
 	if baseURL != "" {
 		config.BaseURL = baseURL
@@ -60,9 +83,29 @@ func NewOpenAINode(ctx context.Context, apiKey, modelName, baseURL string) (Draf
 }
 
 func (n openAINode) Draft(ctx context.Context, prompt string) (string, error) {
-	message, err := n.model.Generate(ctx, []*schema.Message{schema.UserMessage(prompt)})
+	ctx, span := otel.Tracer("eino").Start(ctx, "eino.draft")
+	defer span.End()
+	stream, err := n.model.Stream(ctx, []*schema.Message{schema.UserMessage(prompt)})
 	if err != nil {
 		return "", err
 	}
-	return message.Content, nil
+	defer stream.Close()
+	var output strings.Builder
+	for {
+		message, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", errors.New("model_stream_failed")
+		}
+		if output.Len()+len(message.Content) > 65536 {
+			return "", errors.New("model_output_too_large")
+		}
+		output.WriteString(message.Content)
+	}
+	if output.Len() == 0 {
+		return "", errors.New("model_output_empty")
+	}
+	return output.String(), nil
 }

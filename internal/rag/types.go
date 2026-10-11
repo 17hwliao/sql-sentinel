@@ -35,7 +35,7 @@ type Scope struct {
 }
 
 func (s Scope) validate() error {
-	if strings.TrimSpace(s.TenantID) == "" || strings.TrimSpace(s.ProjectID) == "" {
+	if strings.TrimSpace(s.TenantID) == "" || strings.TrimSpace(s.ProjectID) == "" || len(s.TenantID) > 64 || len(s.ProjectID) > 64 {
 		return fmt.Errorf("%w: tenant_id and project_id are required", ErrInvalidInput)
 	}
 	return nil
