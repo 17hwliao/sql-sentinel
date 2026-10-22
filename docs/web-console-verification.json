@@ -1,0 +1,94 @@
+{
+  "date": "2026-10-22T15:52:32.859197+00:00",
+  "status": "PASS_WITH_EXPLICIT_ENVIRONMENT_LIMITS",
+  "go_version": "1.26.10",
+  "node_tests": {
+    "AgentMesh": {
+      "tests": 32,
+      "pass": 32,
+      "fail": 0,
+      "skipped": 0
+    },
+    "sql-sentinel": {
+      "tests": 34,
+      "pass": 34,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "linux_race": {
+    "AgentMesh": {
+      "counts": {
+        "pass": 305,
+        "skip": 2
+      },
+      "skipped": [
+        "TestLocalResourceEvidence",
+        "TestMoneyCrashProbeChild"
+      ],
+      "mandatory_missing": [],
+      "failed": [],
+      "log_sha256": "433705478cc07ba0cee9d2552968a7e967bde5cabbbdcfbec530cbfa2191f663"
+    },
+    "sql-sentinel": {
+      "counts": {
+        "pass": 278
+      },
+      "skipped": [],
+      "mandatory_missing": [],
+      "failed": [],
+      "log_sha256": "8654ac4c4b4addcb957ac378eae73642263a2fa3ffc51c27675ade8413e664d1"
+    }
+  },
+  "supplemental_mock_resource_tests": {
+    "pass": 4
+  },
+  "security": {
+    "business_source_findings": 0,
+    "proxy_reachable_findings": 0,
+    "proxy_imported_package_findings": 0,
+    "proxy_module_advisories": [
+      {
+        "id": "GO-2026-5932",
+        "package": "golang.org/x/crypto/openpgp",
+        "imported": false,
+        "fixed_version": null
+      }
+    ],
+    "fixed_standard_library_advisory": "GO-2026-6809",
+    "npm_production_findings": 0,
+    "all_os_packages_scanned": false
+  },
+  "openapi_operations": {
+    "AgentMesh": 28,
+    "sql-sentinel": 21
+  },
+  "new_paid_model_test_calls": 0,
+  "limits": {
+    "real_clerk_email_sso": "not configured or verified",
+    "real_business_browser_e2e": "not performed with real Clerk",
+    "cloud_domain_deployment": "not performed",
+    "payment_acquiring": "not implemented; admin credit and token billing only",
+    "member_provisioning": "private declarative files; no automatic signup credit",
+    "document_versions": "current version replacement; no historical rollback"
+  },
+  "review_fixes": [
+    "stable Clerk hash mount",
+    "identity epochs including delayed errors and product revocation",
+    "ungranted identity exit/recheck",
+    "valid RAG MIME/version",
+    "Go performance JSON contract",
+    "persisted scoped job pagination instead of 30 parallel requests",
+    "real model selection and readiness preflight",
+    "hypothesis statement/facts/verification",
+    "retrieval items and citations"
+  ],
+  "container_verification": {
+    "two_non_root_readonly_consoles": true,
+    "http_cases": 16,
+    "hashed_assets_immutable": true,
+    "compose_config": true,
+    "caddy_validate": true,
+    "backend_production_images_built": true
+  }
+}

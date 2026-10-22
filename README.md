@@ -1,3 +1,5 @@
+**2026-10-22 独立控制台**：[前端与共享 Clerk 登录接入](web/README.md)。当前提供本地界面预览、真实 API 适配及受控认证测试；真实 Clerk 邮件/跨控制台登录待配置。
+
 > **2026-10-10 后端版本**：通用MySQL、审批/L2-L3门禁、持久RAG见 [后端扩展说明](docs/backend-expansion.md)；有限Eino图、SQL改写、mTLS Verifier、ES历史先验、PostgreSQL/写成本实验见 [新增运行契约](docs/backend-roadmap.md)。以下规划/阶段记录保留历史口径，真实云/模型/L3/GitHub仍需资料；没有自动生产DDL或已证明生产性能的承诺。
 
 # SQL Sentinel：带影子库验证闭环的 SQL 诊断与 PR 评审 Agent
@@ -537,3 +539,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-agentmesh-bridg
 历史 demo 使用的 18082–18084。成功报告含 AgentMesh Git commit SHA、HTTP 状态、trace ID 与 SSE 完成状态，可用于
 跨项目溯源；这只是一次本机 SSE 传输实证，不是模型质量、数据库、性能、成本或生产集成结论。若环境缺失或网关失败，
 脚本如实输出受控拒绝/失败，且不会伪造成功。
+
+## 本地工程验收与面试演示
+
+本轮提供真实依赖 CI、完整链路负载/崩溃/双实例验收、OpenAPI 契约和一键本地演示。操作与证据边界见 [工程验收说明](docs/engineering-verification.md)，接口见 [OpenAPI](docs/openapi.json)。联合 Python SDK 位于 AgentMesh 的 `sdks/python`；真实模型与云端 commissioning 按联合运维手册执行。
+
+双控制台上线与回退方案：[AgentMesh WEB-PRODUCTION](https://github.com/17hwliao/AgentMesh/blob/master/deployments/backend-stack/WEB-PRODUCTION.md)。源码和受控验证不等同于真实 Clerk 或云域名已验收。

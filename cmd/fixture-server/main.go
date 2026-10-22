@@ -16,11 +16,17 @@ import (
 
 var state struct {
 	sync.Mutex
-	Mode      string
-	Calls     int
-	Comments  []map[string]any
-	Head      string
-	MaxTokens int
+	Mode         string
+	Calls        int
+	Comments     []map[string]any
+	Head         string
+	MaxTokens    int
+	Chunks       int
+	DelayMS      int
+	PayloadBytes int
+	Active       int
+	Finished     int
+	Cancelled    int
 }
 
 const sampleSQL = "SELECT id, status, created_at\nFROM orders\nWHERE user_id = 42 AND status = 'paid'\nORDER BY created_at DESC LIMIT 20;"
@@ -65,7 +71,20 @@ func chat(w http.ResponseWriter, r *http.Request) {
 	state.Calls++
 	state.MaxTokens = input.MaxTokens
 	mode := state.Mode
+	chunks, delay, payloadBytes := state.Chunks, state.DelayMS, state.PayloadBytes
+	state.Active++
 	state.Unlock()
+	completed := false
+	defer func() {
+		state.Lock()
+		defer state.Unlock()
+		state.Active--
+		if completed {
+			state.Finished++
+		} else {
+			state.Cancelled++
+		}
+	}()
 	if mode == "unavailable" {
 		http.Error(w, "fixture unavailable", 503)
 		return
@@ -78,6 +97,10 @@ func chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	text := "fixture response"
+	allMessages := ""
+	for _, message := range input.Messages {
+		allMessages += message.Content + "\n"
+	}
 	for _, message := range input.Messages {
 		if strings.Contains(message.Content, "CandidateSpec") {
 			text = `{"table":"orders","index_name":"idx_cand_model","columns":[{"name":"user_id","direction":"ASC"},{"name":"status","direction":"ASC"},{"name":"created_at","direction":"DESC"}]}`
@@ -91,6 +114,14 @@ func chat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if strings.Contains(allMessages, "citation_chunk_ids") {
+		id := regexp.MustCompile(`"chunk_id":"([a-f0-9]{32})"`).FindStringSubmatch(allMessages)
+		text = `{"answer":"","citation_chunk_ids":[]}`
+		if len(id) == 2 {
+			raw, _ := json.Marshal(map[string]any{"answer": "The project uses persistent queues and scoped evidence.", "citation_chunk_ids": []string{id[1]}})
+			text = string(raw)
+		}
+	}
 	if mode == "overrun" {
 		text = strings.Repeat("x", 5000)
 	}
@@ -102,20 +133,59 @@ func chat(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		return
 	}
+	if mode == "long_stream" || mode == "paced_stream" {
+		if chunks < 1 {
+			chunks = 4000
+		}
+		for i := 0; i < chunks; i++ {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+			}
+			if delay > 0 {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(time.Duration(delay) * time.Millisecond):
+				}
+			}
+			if payloadBytes < 1 {
+				payloadBytes = 1
+			}
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]string{"content": strings.Repeat("x", payloadBytes)}}}})
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", chunk); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":%d}}\n\ndata: [DONE]\n\n", chunks+16)
+		completed = true
+		return
+	}
 	fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":50}}\n\ndata: [DONE]\n\n")
+	completed = true
 }
 func control(w http.ResponseWriter, r *http.Request) {
 	state.Lock()
 	defer state.Unlock()
 	if r.Method == "POST" {
-		var in struct{ Mode, Head string }
-		json.NewDecoder(r.Body).Decode(&in)
+		var in struct {
+			Mode, Head                    string
+			Chunks, DelayMS, PayloadBytes int
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil || in.Chunks < 0 || in.Chunks > 4000 || in.DelayMS < 0 || in.DelayMS > 250 || in.PayloadBytes < 0 || in.PayloadBytes > 8192 {
+			http.Error(w, "invalid control", 400)
+			return
+		}
 		state.Mode = in.Mode
+		state.Chunks, state.DelayMS = in.Chunks, in.DelayMS
+		state.PayloadBytes = in.PayloadBytes
 		if in.Head != "" {
 			state.Head = in.Head
 		}
 	}
-	json.NewEncoder(w).Encode(map[string]any{"mode": state.Mode, "calls": state.Calls, "max_tokens": state.MaxTokens, "comments": state.Comments, "head": state.Head})
+	json.NewEncoder(w).Encode(map[string]any{"mode": state.Mode, "calls": state.Calls, "max_tokens": state.MaxTokens, "comments": state.Comments, "head": state.Head, "active": state.Active, "finished": state.Finished, "cancelled": state.Cancelled})
 }
 func github(w http.ResponseWriter, r *http.Request) {
 	state.Lock()

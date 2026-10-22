@@ -1,0 +1,12 @@
+{
+  "origin": "http://127.0.0.1:4181",
+  "peer_url": "http://127.0.0.1:4180",
+  "public_api_url": "https://api.example.com/sentinel",
+  "clerk_publishable_key": "",
+  "clerk_issuer": "",
+  "clerk_secret_file": "/run/console-private/clerk_secret",
+  "members_file": "/run/console-private/members.json",
+  "backend_url": "http://sentinel-api:8080",
+  "backend_admin_file": "/run/console-private/sentinel_token",
+  "production": false
+}

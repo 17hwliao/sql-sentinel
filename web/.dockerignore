@@ -1,0 +1,8 @@
+node_modules
+dist
+.private
+.env*
+test
+*.log
+console.config.example.json
+members.example.json

@@ -17,3 +17,11 @@ __pycache__/
 *.pyc
 secrets/
 backups/
+
+# Frontend dependencies, generated bundle and private console configuration
+/web/node_modules/
+/web/dist/
+console-private/
+
+/web/console.config.json
+/web/members.json

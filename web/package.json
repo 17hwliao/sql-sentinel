@@ -1,0 +1,23 @@
+{
+  "name": "sql-sentinel-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "node server.mjs",
+    "test": "node --experimental-vm-modules --test test/*.test.mjs",
+    "check:config": "node check-config.mjs --probe"
+  },
+  "dependencies": {
+    "@clerk/clerk-js": "6.40.0",
+    "jose": "6.2.13"
+  },
+  "devDependencies": {
+    "vite": "8.3.5"
+  }
+}

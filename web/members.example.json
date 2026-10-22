@@ -1,0 +1,9 @@
+{
+  "user_REPLACE_WITH_CLERK_USER_ID": {
+    "enabled": true,
+    "tenant_id": "REPLACE_WITH_TENANT",
+    "project_id": "REPLACE_WITH_PROJECT",
+    "role": "writer",
+    "tables": ["orders"]
+  }
+}

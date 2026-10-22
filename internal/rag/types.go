@@ -152,6 +152,9 @@ type Reranker interface {
 }
 
 func validateQuestion(question string) error {
+	if sensitiveRequest(question) {
+		return ErrSensitiveScope
+	}
 	q := strings.ToLower(strings.TrimSpace(question))
 	if q == "" {
 		return fmt.Errorf("%w: question is required", ErrInvalidInput)

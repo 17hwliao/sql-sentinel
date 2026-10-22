@@ -59,7 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/jobs", s.authorize(http.HandlerFunc(s.receive)))
 	mux.Handle("/jobs/", s.authorize(http.HandlerFunc(s.get)))
 	mux.Handle("GET /history/search", s.authorize(http.HandlerFunc(s.history)))
-	for _, path := range []string{"/auth/tokens", "/auth/revoke", "/audit", "/rag/documents", "/rag/documents/", "/rag/query", "/rag/answer"} {
+	for _, path := range []string{"/connections", "/auth/sessions", "/auth/tokens", "/auth/revoke", "/audit", "/rag/documents", "/rag/documents/", "/rag/query", "/rag/answer"} {
 		mux.Handle(path, s.authorize(http.HandlerFunc(s.extension)))
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +111,10 @@ func (s *Server) authorize(next http.Handler) http.Handler {
 }
 
 func (s *Server) receive(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		s.listJobs(w, r)
+		return
+	}
 	if r.Method != "POST" {
 		respond(w, 405, map[string]string{"code": "method_not_allowed"})
 		return

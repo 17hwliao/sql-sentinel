@@ -1,0 +1,38 @@
+{
+  "protocol": "",
+  "evidence_level": "L2",
+  "eligible_for_performance_claim": true,
+  "result_equivalent": true,
+  "rejection_reasons": null,
+  "BaselineCalibration": {
+    "raw_ms": null,
+    "median_ms": 0,
+    "p95_ms": 0,
+    "noise_ratio": 0
+  },
+  "CandidateCalibration": {
+    "raw_ms": null,
+    "median_ms": 0,
+    "p95_ms": 0,
+    "noise_ratio": 0.01
+  },
+  "BaselineMeasurement": {
+    "raw_ms": null,
+    "median_ms": 12.5,
+    "p95_ms": 0,
+    "noise_ratio": 0
+  },
+  "CandidateMeasurement": {
+    "raw_ms": null,
+    "median_ms": 6.25,
+    "p95_ms": 0,
+    "noise_ratio": 0
+  },
+  "relative_delta": 0,
+  "significance_threshold": 0,
+  "BaselineAnalyze": "",
+  "CandidateAnalyze": "",
+  "workload_sha256": "",
+  "snapshot_sha256": "",
+  "recommendation": ""
+}

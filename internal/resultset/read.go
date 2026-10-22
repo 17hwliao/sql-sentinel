@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,18 @@ func Canonical(raw []byte, kind string) ([]byte, error) {
 		return nil, nil
 	}
 	kind = strings.ToUpper(kind)
+	if kind == "DECIMAL" || kind == "NEWDECIMAL" || kind == "NUMERIC" {
+		// Exact decimal semantics: MySQL may encode CASE's 0 as "0.00" while
+		// COALESCE emits "0". Never pass money/large decimals through float64.
+		if len(raw) > 128 {
+			return nil, errors.New("invalid_decimal_result")
+		}
+		value, ok := new(big.Rat).SetString(string(raw))
+		if !ok {
+			return nil, errors.New("invalid_decimal_result")
+		}
+		return []byte(value.RatString()), nil
+	}
 	if kind == "JSON" || kind == "JSONB" {
 		var v any
 		d := json.NewDecoder(bytes.NewReader(raw))

@@ -1,4 +1,4 @@
-ARG GO_BUILD_IMAGE=golang:1.26.9-alpine
+ARG GO_BUILD_IMAGE=golang:1.26.10-alpine
 FROM ${GO_BUILD_IMAGE} AS build
 WORKDIR /src
 COPY go.mod go.sum ./

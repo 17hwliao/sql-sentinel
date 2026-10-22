@@ -83,9 +83,17 @@ func NewOpenAINode(ctx context.Context, apiKey, modelName, baseURL string) (Draf
 }
 
 func (n openAINode) Draft(ctx context.Context, prompt string) (string, error) {
+	return n.DraftWithSystem(ctx, "", prompt)
+}
+
+func (n openAINode) DraftWithSystem(ctx context.Context, rules, prompt string) (string, error) {
 	ctx, span := otel.Tracer("eino").Start(ctx, "eino.draft")
 	defer span.End()
-	stream, err := n.model.Stream(ctx, []*schema.Message{schema.UserMessage(prompt)})
+	messages := []*schema.Message{schema.UserMessage(prompt)}
+	if rules != "" {
+		messages = append([]*schema.Message{schema.SystemMessage(rules)}, messages...)
+	}
+	stream, err := n.model.Stream(ctx, messages)
 	if err != nil {
 		return "", err
 	}

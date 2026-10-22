@@ -61,6 +61,23 @@ func TestPersistentSQLCounterexamples(t *testing.T) {
 		{"cte-self-name-reads-physical-table", "WITH secrets AS (SELECT id FROM secrets) SELECT o.id FROM orders o JOIN secrets s ON s.id=o.id ORDER BY o.id", "SELECT o.id FROM orders o JOIN secrets s ON s.id=o.id ORDER BY o.id", true, true},
 		{"cte-forward-name-reads-physical-table", "WITH first_cte AS (SELECT id FROM secrets), secrets AS (SELECT id FROM orders) SELECT id FROM first_cte ORDER BY id", "SELECT id FROM secrets ORDER BY id", true, true},
 		{"nested-self-name-uses-visible-outer-cte", "WITH secrets AS (SELECT id FROM orders) SELECT id FROM secrets WHERE id IN (WITH secrets AS (SELECT id FROM secrets) SELECT id FROM secrets) ORDER BY id", "SELECT id FROM orders ORDER BY id", true, true},
+		{"derived-table-equivalence", "SELECT id FROM orders WHERE user_id=1 ORDER BY id", "SELECT d.id FROM (SELECT id,user_id FROM orders) d WHERE d.user_id=1 ORDER BY d.id", true, true},
+		{"quoted-cte-self-table", "WITH `secrets` AS (SELECT id FROM `secrets`) SELECT id FROM secrets ORDER BY id", "SELECT id FROM secrets ORDER BY id", true, true},
+		{"cte-chain", "WITH a AS (SELECT id FROM orders), b AS (SELECT id FROM a WHERE id<4) SELECT id FROM b ORDER BY id", "SELECT id FROM orders WHERE id<4 ORDER BY id", true, true},
+		{"cte-shadow-different-data", "WITH secrets AS (SELECT id FROM orders) SELECT id FROM secrets", "SELECT id FROM secrets", false, false},
+		{"exists-equivalence", "SELECT o.id FROM orders o WHERE EXISTS (SELECT 1 FROM customers c WHERE c.id=o.user_id)", "SELECT o.id FROM orders o JOIN customers c ON c.id=o.user_id", false, true},
+		{"not-in-null-counterexample", "SELECT id FROM orders WHERE status NOT IN ('paid',NULL)", "SELECT id FROM orders WHERE status!='paid'", false, false},
+		{"case-null-equivalence", "SELECT CASE WHEN amount IS NULL THEN 0 ELSE amount END AS n FROM orders", "SELECT COALESCE(amount,0) AS n FROM orders", false, true},
+		{"empty-aggregate-null", "SELECT SUM(amount) AS n FROM orders WHERE id<0", "SELECT COALESCE(SUM(amount),0) AS n FROM orders WHERE id<0", false, false},
+		{"having-vs-where-equivalence", "SELECT user_id,COUNT(*) AS n FROM orders GROUP BY user_id HAVING user_id=1", "SELECT user_id,COUNT(*) AS n FROM orders WHERE user_id=1 GROUP BY user_id", false, true},
+		{"left-join-filter-changes-rows", "SELECT o.id FROM orders o LEFT JOIN customers c ON c.id=o.user_id AND c.name='Acme'", "SELECT o.id FROM orders o LEFT JOIN customers c ON c.id=o.user_id WHERE c.name='Acme'", false, false},
+		{"limit-offset-selection", "SELECT id FROM orders ORDER BY id LIMIT 2 OFFSET 1", "SELECT id FROM orders ORDER BY id LIMIT 2", true, false},
+		{"union-distinct-equivalence", "SELECT user_id FROM orders UNION SELECT user_id FROM orders", "SELECT DISTINCT user_id FROM orders", false, true},
+		{"numeric-conversion-counterexample", "SELECT id FROM orders WHERE CAST(user_id AS CHAR)='01'", "SELECT id FROM orders WHERE user_id='01'", false, false},
+		{"collation-counterexample", "SELECT id FROM customers WHERE name COLLATE utf8mb4_0900_ai_ci='acme'", "SELECT id FROM customers WHERE name COLLATE utf8mb4_bin='acme'", false, false},
+		{"alias-expression-label", "SELECT id+0 AS id FROM orders", "SELECT id FROM orders", false, true},
+		{"null-safe-equals", "SELECT id FROM orders WHERE status<=>NULL", "SELECT id FROM orders WHERE status IS NULL", false, true},
+		{"null-equality-counterexample", "SELECT id FROM orders WHERE status=NULL", "SELECT id FROM orders WHERE status IS NULL", false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			a, _, e := Read(ctx, db, c.a, c.ordered)
