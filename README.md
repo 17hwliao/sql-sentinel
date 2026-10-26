@@ -1,8 +1,146 @@
+<p align="center">
+  <img src="docs/assets/readme-mark.svg" width="88" height="88" alt="SQL Sentinel" />
+</p>
+
+<h1 align="center">SQL Sentinel</h1>
+
+<p align="center"><strong>让 SQL 优化建议，经得起证据检验。</strong></p>
+
+<p align="center">SQL 诊断与 PR 评审 Agent · 受限候选 · 隔离影子验证 · 分级证据</p>
+
+<p align="center">
+  <a href="#工作方式">工作方式</a> &nbsp;·&nbsp;
+  <a href="#证据等级">证据等级</a> &nbsp;·&nbsp;
+  <a href="#快速上手">快速上手</a> &nbsp;·&nbsp;
+  <a href="#文档地图">文档地图</a>
+</p>
+
+---
+
+SQL Sentinel 把 SQL 准入、执行计划、候选索引或改写、影子验证和审批连成一条可追溯的证据链。Eino 负责提出受限候选，Go 代码负责校验与执行，最终报告说明结论依据、证据等级和仍未验证的部分。
+
+| 提案有边界 | 验证有隔离 | 结论有依据 |
+| :--- | :--- | :--- |
+| 模型输出先经过结构与安全校验。 | 候选操作只进入授权的隔离影子环境。 | 计划、快照、测量与报告哈希绑定；证据不足时保留低等级结论。 |
+
+## 工作方式
+
+```mermaid
+flowchart LR
+    I["手工 SQL / GitHub PR"] --> A["AST 准入与权限"]
+    A --> E["Schema · 快照 · Baseline Plan"]
+    E --> P["Eino 受限提案"]
+    P --> V["Go 校验与 Candidate 影子验证"]
+    V --> R["L1 报告与哈希"]
+    R --> H["人工审批"]
+    H --> B["配对 A/B · 等价性 · 证据门禁"]
+```
+
+默认分析产生 L1 计划证据。审批后的基准任务独立记录结果；是否达到 L2/L3 取决于真实测量与准入条件。整个流程没有自动应用生产 DDL 的接口。
+
+### 当前能力
+
+| 范围 | 实现与入口 |
+| :--- | :--- |
+| **SQL 与表授权** | 有边界的 MySQL 单条 SELECT / WITH / UNION；AST 准入、表白名单与 scope 校验。[通用 SQL 边界](docs/backend-expansion.md#通用-sql-与影子边界) |
+| **异步任务** | API → MySQL outbox → Kafka → Worker / Verifier；持久报告、租约恢复和重复事件处理。[后端基线](docs/backend-release.md) |
+| **候选与改写** | 有限 evidence → draft → validate → decision 图；索引与显式只读改写、结果等价检查。[提案与改写](docs/backend-roadmap.md#有限提案图与改写) |
+| **审批与测量** | JWT / Casbin 域隔离、不可变报告哈希审批、A/B 与噪声门禁、L2/L3 条件。[扩展契约](docs/backend-expansion.md) |
+| **知识与历史** | 持久 RAG、带来源引用的回答、可选 ES 历史先验；历史不能升级本次证据。[RAG](docs/backend-expansion.md#rag) · [历史检索](docs/backend-roadmap.md) |
+| **外部集成** | GitHub PR webhook 与可选评论、AgentMesh 模型服务、mTLS Verifier。[后端契约](docs/backend-release.md) · [运行契约](docs/backend-roadmap.md) |
+| **控制台与实验** | 独立 Web 控制台；PostgreSQL 对照和并发写成本为专用实验入口。[控制台](web/README.md) · [实验范围](docs/backend-roadmap.md#postgresql和并发写入实验) |
+
+## 证据等级
+
+| 等级 | 证据来源 | 结论边界 |
+| :--- | :--- | :--- |
+| **L0 · 静态线索** | SQL AST 与规则 | 提示风险，尚未验证计划或收益。 |
+| **L1 · 计划证据** | Schema、快照、索引、EXPLAIN | 说明计划与诊断依据，不能证明性能提升。 |
+| **L2 · 基准验证** | 隔离环境、结果等价、重复 A/B 与噪声准入 | 仅证明该基准数据和协议范围内的结果。 |
+| **L3 · 代表性工作负载** | 合格 L2 + 脱敏数据/工作负载来源与快照绑定 | 还依赖数据所有者对代表性的确认。 |
+
+报告中的 `eligible_for_performance_claim` 是性能声称的资格字段。历史实验曾出现方向为 `Better`、噪声却超限的情况，因此保持 L1/false；首页不会把这些数字写成已验证收益。真实代表性 L3、真实模型质量和 GitHub 联调仍需相应资料与环境。
+
+## 快速上手
+
+### 先运行无数据库的 CLI
+
+需要与 [`go.mod`](go.mod) 一致的 Go 工具链。从仓库根目录执行：
+
+```sh
+# 静态只读 SQL 准入：只读取文件，输出 JSON
+go run ./cmd/sentinel sql-admit --in examples/read-only-query.sql
+
+# 校验 CandidateSpec，预览确定性 DDL；不会执行 DDL
+go run ./cmd/sentinel candidate-preview --in examples/candidate-index.json
+```
+
+这两个入口不连接 MySQL，也不调用模型。影子计划、A/B、模型提案和服务部署各自需要额外配置，详见下方手册。
+
+### 查看控制台
+
+需要 Node.js ≥ 22.12：
+
+```sh
+cd web
+npm ci
+npm run build
+npm start
+```
+
+打开 `http://127.0.0.1:4181/?preview=1` 查看标明样例数据的界面。实际业务需配置后端与身份服务；真实 Clerk 邮件和跨控制台登录尚待配置。[控制台设置](web/README.md)
+
+### 准备联合部署
+
+在同级目录克隆 AgentMesh 与 SQL Sentinel，然后从 AgentMesh 导出模板：
+
+```sh
+git clone https://github.com/17hwliao/AgentMesh.git
+git clone https://github.com/17hwliao/sql-sentinel.git
+cd AgentMesh
+python scripts/export-backend-stack.py --out ../deploy
+```
+
+按[模板导出说明](https://github.com/17hwliao/AgentMesh/blob/master/deployments/backend-stack/EXPORT.md)和[上线手册](https://github.com/17hwliao/AgentMesh/blob/master/deployments/backend-stack/ROADMAP-RUNBOOK.md)配置私有凭据、影子数据与服务。导出模板不会启动数据库或发布 GitHub 评论。
+
+## 使用边界
+
+- **只接隔离影子数据。** Baseline 与 Candidate 必须通过版本和快照门禁；模型不能提交任意 DDL。生产变更留给人工流程。
+- **SQL 支持有范围。** 跨 schema、视图、写语句、锁定读、递归 CTE、绑定参数等不在当前通用入口范围内；完整限制见[准入契约](docs/backend-expansion.md#通用-sql-与影子边界)。
+- **权限不等于行级隔离。** 租户/项目/表权限不能隔离同一共享表中的不同租户行；需要独立影子环境或独立表。
+- **GitHub 评论是显式配置项。** `GITHUB_PUBLISH_COMMENTS` 默认 false；原生生产 webhook 与旧本机模拟 webhook 分别有自己的契约。
+- **实验结果按范围解释。** PostgreSQL 对照、合成写成本与历史先验都不能替代真实生产工作负载证据。
+
+## 文档地图
+
+| 你想了解 | 从这里开始 |
+| :--- | :--- |
+| 当前服务、API 和任务恢复 | [后端基线](docs/backend-release.md) → [核心扩展](docs/backend-expansion.md) → [后续运行契约](docs/backend-roadmap.md) |
+| 控制台、身份与权限 | [Web 控制台](web/README.md) · [审批与 JWT](docs/backend-expansion.md#身份与审批) |
+| 数据、反例与测量 | [本地改进契约](docs/local-improvements.md) · [证据原始快照](evaluation_report.json) |
+| 工程验证与接口 | [工程验收说明](docs/engineering-verification.md) · [OpenAPI](docs/openapi.json) |
+| 部署与回退 | [联合部署目录](https://github.com/17hwliao/AgentMesh/tree/master/deployments/backend-stack) · [双控制台上线方案](https://github.com/17hwliao/AgentMesh/blob/master/deployments/backend-stack/WEB-PRODUCTION.md) |
+| 原始设计与阶段依据 | [完整文档导航](docs/README.md) · [原始规格](specs/) |
+
+## 开发检查
+
+```sh
+go test ./...
+go vet ./...
+```
+
+真实依赖与完整链路检查的条件见[工程验收说明](docs/engineering-verification.md)。命令入口存在不代表本次已经执行了环境验收。
+
+## 设计与阶段记录
+
+原 README 的设计、实验、CLI 命令及证据限制完整保留在下方。早期 orders-v1、单节点图、旧技术选型与“尚未实现”均按当时范围理解；当前行为以上方运行契约为准。历史建议中的 CandidateSpec 示例不替代当前严格 CLI/API 格式。
+
+<details>
+<summary><strong>展开原始设计、阶段 0–24 与证据记录</strong></summary>
+
 **2026-10-22 独立控制台**：[前端与共享 Clerk 登录接入](web/README.md)。当前提供本地界面预览、真实 API 适配及受控认证测试；真实 Clerk 邮件/跨控制台登录待配置。
 
 > **2026-10-10 后端版本**：通用MySQL、审批/L2-L3门禁、持久RAG见 [后端扩展说明](docs/backend-expansion.md)；有限Eino图、SQL改写、mTLS Verifier、ES历史先验、PostgreSQL/写成本实验见 [新增运行契约](docs/backend-roadmap.md)。以下规划/阶段记录保留历史口径，真实云/模型/L3/GitHub仍需资料；没有自动生产DDL或已证明生产性能的承诺。
-
-# SQL Sentinel：带影子库验证闭环的 SQL 诊断与 PR 评审 Agent
 
 联合部署模板由 [AgentMesh 仓库](https://github.com/17hwliao/AgentMesh/tree/master/deployments/backend-stack) 托管；两个仓库同级克隆后，在 AgentMesh 中运行 `python scripts/export-backend-stack.py --out ../deploy`。
 
@@ -519,7 +657,7 @@ HTTP 429 / `queue_full`，没有无界队列。delivery 输出包含 `comment.md
 
 ## 23. AgentMesh 本地联桥验证
 
-`agentmesh-bridge-test` 只消费 [AgentMesh](../01-AgentMesh-018/) 已发布的
+`agentmesh-bridge-test` 只消费 [AgentMesh](https://github.com/17hwliao/AgentMesh) 已发布的
 `POST /v1/chat/completions` SSE 契约，用于验证两个项目的本机传输互操作；它不把模型输出、SQL、证据包或
 CandidateSpec 传给对方。命令只接受 `http://127.0.0.1:PORT`，从进程环境读取 `AGENTMESH_BASE_URL`、
 `AGENTMESH_API_KEY`、`AGENTMESH_MODEL` 与 `AGENTMESH_COMMIT_SHA`，将 Key 仅置于 Authorization header。
@@ -545,3 +683,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-agentmesh-bridg
 本轮提供真实依赖 CI、完整链路负载/崩溃/双实例验收、OpenAPI 契约和一键本地演示。操作与证据边界见 [工程验收说明](docs/engineering-verification.md)，接口见 [OpenAPI](docs/openapi.json)。联合 Python SDK 位于 AgentMesh 的 `sdks/python`；真实模型与云端 commissioning 按联合运维手册执行。
 
 双控制台上线与回退方案：[AgentMesh WEB-PRODUCTION](https://github.com/17hwliao/AgentMesh/blob/master/deployments/backend-stack/WEB-PRODUCTION.md)。源码和受控验证不等同于真实 Clerk 或云域名已验收。
+
+</details>
