@@ -78,7 +78,7 @@ func (w *Worker) Handle(ctx context.Context, message Message) error {
 		return err
 	}
 	if !claimed {
-		if job.Status == Completed || job.Status == Rejected || job.Status == DeadLetter {
+		if job.Status == Completed || job.Status == Rejected || job.Status == DeadLetter || job.Status == Cancelled {
 			return nil
 		}
 		return ErrLeaseBusy
@@ -103,7 +103,11 @@ func (w *Worker) Handle(ctx context.Context, message Message) error {
 			if renew, ok := w.Store.(interface {
 				Renew(context.Context, string, string, time.Time, time.Duration) (bool, error)
 			}); ok {
-				ticker := time.NewTicker(cfg.Lease / 3)
+				interval := cfg.Lease / 3
+				if interval > time.Second {
+					interval = time.Second
+				}
+				ticker := time.NewTicker(interval)
 				defer ticker.Stop()
 				for {
 					select {
@@ -127,6 +131,9 @@ func (w *Worker) Handle(ctx context.Context, message Message) error {
 		}
 		cancel()
 		<-done
+	}
+	if current, lookupErr := w.Store.Get(ctx, job.DeliveryID); lookupErr == nil && current.Status == Cancelled {
+		return nil
 	}
 	now := w.Now().UTC()
 	if err == nil {

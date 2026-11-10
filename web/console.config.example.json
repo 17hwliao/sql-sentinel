@@ -1,12 +1,16 @@
 {
   "origin": "http://127.0.0.1:4181",
   "peer_url": "http://127.0.0.1:4180",
-  "public_api_url": "https://api.example.com/sentinel",
-  "clerk_publishable_key": "",
-  "clerk_issuer": "",
-  "clerk_secret_file": "/run/console-private/clerk_secret",
+  "public_api_url": "",
+  "oidc_issuer": "http://127.0.0.1:8000",
+  "oidc_client_id": "",
+  "oidc_client_secret_file": "/run/console-private/oidc_client_secret",
+  "session_key_file": "/run/console-private/session_key",
+  "session_redis_url": "redis://console-sessions:6379/0",
+  "session_redis_password_file": "/run/console-private/redis_password",
+  "email_delivery": "unconfigured",
   "members_file": "/run/console-private/members.json",
   "backend_url": "http://sentinel-api:8080",
-  "backend_admin_file": "/run/console-private/sentinel_token",
+  "backend_admin_file": "/run/console-private/admin_token",
   "production": false
 }

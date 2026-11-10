@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"sqlsentinel/internal/agentgraph"
+	"sqlsentinel/internal/agentrun"
 	"sqlsentinel/internal/historicalprior"
 	"sqlsentinel/internal/identity"
 	workflow "sqlsentinel/internal/kafka"
@@ -33,6 +34,7 @@ type Server struct {
 	RAG           *rag.Service
 	AnswerModel   agentgraph.DraftNode
 	AllowedTables map[string]bool
+	AgentRuns     *agentrun.Service
 	slots         chan struct{}
 }
 
@@ -59,6 +61,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/jobs", s.authorize(http.HandlerFunc(s.receive)))
 	mux.Handle("/jobs/", s.authorize(http.HandlerFunc(s.get)))
 	mux.Handle("GET /history/search", s.authorize(http.HandlerFunc(s.history)))
+	mux.Handle("/agent/config", s.authorize(http.HandlerFunc(s.agentRunHTTP)))
+	mux.Handle("/agent/runs", s.authorize(http.HandlerFunc(s.agentRunHTTP)))
+	mux.Handle("/agent/runs/", s.authorize(http.HandlerFunc(s.agentRunHTTP)))
 	for _, path := range []string{"/connections", "/auth/sessions", "/auth/tokens", "/auth/revoke", "/audit", "/rag/documents", "/rag/documents/", "/rag/query", "/rag/answer"} {
 		mux.Handle(path, s.authorize(http.HandlerFunc(s.extension)))
 	}
@@ -120,10 +125,11 @@ func (s *Server) receive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		DeliveryID string          `json:"delivery_id"`
-		PRNumber   int             `json:"pr_number"`
-		SQL        string          `json:"sql"`
-		Candidate  json.RawMessage `json:"candidate_spec"`
+		DeliveryID    string          `json:"delivery_id"`
+		PRNumber      int             `json:"pr_number"`
+		SQL           string          `json:"sql"`
+		Candidate     json.RawMessage `json:"candidate_spec"`
+		ExecutionMode string          `json:"execution_mode,omitempty"`
 	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 128<<10))
 	if err != nil {
@@ -144,12 +150,20 @@ func (s *Server) receive(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.ExecutionMode != "" && in.ExecutionMode != "agent.v1" {
+		respond(w, 400, map[string]string{"code": "execution_mode_invalid"})
+		return
+	}
+	if in.ExecutionMode != "" && string(in.Candidate) != "{}" {
+		respond(w, 400, map[string]string{"code": "agent_requires_automatic_index_candidate"})
+		return
+	}
 	p := identity.From(r.Context())
 	if !s.tablesAllowed(p, in.SQL) {
 		respond(w, 403, map[string]string{"code": "table_not_allowed"})
 		return
 	}
-	result, err := s.Store.Receive(r.Context(), workflow.ReceiveInput{DeliveryID: in.DeliveryID, PRNumber: in.PRNumber, SQL: []byte(in.SQL), CandidateSpec: in.Candidate, Options: workflow.JobOptions{TenantID: p.Tenant, ProjectID: p.Project, Actor: p.Subject}})
+	result, err := s.submitScopedDiagnosis(r.Context(), p, in.DeliveryID, in.PRNumber, in.SQL, in.Candidate, in.ExecutionMode)
 	if errors.Is(err, workflow.ErrDeliveryConflict) {
 		respond(w, 409, map[string]string{"code": "delivery_conflict"})
 		return
@@ -166,6 +180,10 @@ func (s *Server) receive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/cancel") {
+		s.cancelJob(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/approval") || strings.HasSuffix(r.URL.Path, "/benchmark") {
 		s.jobAction(w, r)
 		return
@@ -174,22 +192,27 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 		respond(w, 405, map[string]string{"code": "method_not_allowed"})
 		return
 	}
-	path := strings.TrimPrefix(r.URL.Path, "/jobs/")
+	path := jobPathReference(r)
 	id, report := strings.CutSuffix(path, "/report")
 	if !deliveryPattern.MatchString(id) {
 		respond(w, 400, map[string]string{"code": "invalid_id"})
 		return
 	}
-	if _, err := s.scopedJob(r, id); err != nil {
-		jobError(w, err)
+	job, scopeErr := s.scopedJob(r, id)
+	if scopeErr != nil {
+		jobError(w, scopeErr)
 		return
 	}
 	if !report {
-		workflow.StatusHandler(s.Store).ServeHTTP(w, r)
+		clone := r.Clone(r.Context())
+		u := *r.URL
+		u.Path = "/jobs/" + job.DeliveryID
+		clone.URL = &u
+		workflow.StatusHandler(s.Store).ServeHTTP(w, clone)
 		return
 	}
 	var raw []byte
-	err := s.Store.DB.QueryRowContext(r.Context(), `SELECT r.report FROM sql_sentinel_reports r JOIN sql_sentinel_jobs j ON j.job_id=r.job_id WHERE j.delivery_id=? AND j.status IN ('COMPLETED','REJECTED','DEAD_LETTER')`, id).Scan(&raw)
+	err := s.Store.DB.QueryRowContext(r.Context(), `SELECT r.report FROM sql_sentinel_reports r JOIN sql_sentinel_jobs j ON j.job_id=r.job_id WHERE j.job_id=? AND j.status IN ('COMPLETED','REJECTED','DEAD_LETTER','CANCELLED')`, job.ID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		respond(w, 404, map[string]string{"code": "report_not_ready"})
 		return

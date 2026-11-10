@@ -133,7 +133,7 @@ func run(ctx context.Context) error {
 		if len(repositories) == 0 {
 			return errors.New("github_allowlist_required")
 		}
-		gh = &service.GitHub{Secret: secret, Token: os.Getenv("GITHUB_TOKEN"), Repositories: repositories, PublishComments: os.Getenv("GITHUB_PUBLISH_COMMENTS") == "true"}
+		gh = &service.GitHub{Secret: secret, Token: os.Getenv("GITHUB_TOKEN"), Repositories: repositories, PublishComments: os.Getenv("GITHUB_PUBLISH_COMMENTS") == "true", AgentMode: os.Getenv("SQL_SENTINEL_GITHUB_AGENT_MODE") == "true", AllowedTables: tables}
 		if os.Getenv("SQL_SENTINEL_TEST_FIXTURES") == "true" {
 			gh.BaseURL = "http://fixtures:8090"
 		}
@@ -148,7 +148,11 @@ func run(ctx context.Context) error {
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
-	app := (&service.Server{Store: store, Token: token, GitHub: gh, Auth: auth, RAG: knowledge, AnswerModel: answerModel, AllowedTables: tables, History: history}).Handler()
+	backend := &service.Server{Store: store, Token: token, GitHub: gh, Auth: auth, RAG: knowledge, AnswerModel: answerModel, AllowedTables: tables, History: history}
+	if err = configureOuterAgent(ctx, backend); err != nil {
+		return err
+	}
+	app := backend.Handler()
 	root := http.NewServeMux()
 	root.Handle("/metrics", metrics.Metrics())
 	root.Handle("/", metrics.Wrap(app))

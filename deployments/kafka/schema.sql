@@ -97,3 +97,34 @@ CREATE TABLE IF NOT EXISTS sql_sentinel_outbox (
   created_at DATETIME(6) NOT NULL,
   KEY idx_outbox_ready (published_at, available_at)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sql_sentinel_agent_usage (
+ job_id CHAR(64) NOT NULL PRIMARY KEY,
+ model_calls INT NOT NULL DEFAULT 0,
+ evaluations INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB;
+
+-- Optional durable website Agent runs (migration creates it before API startup).
+CREATE TABLE IF NOT EXISTS sql_sentinel_agent_runs (
+ run_id CHAR(32) NOT NULL PRIMARY KEY,
+ tenant_id VARCHAR(64) NOT NULL,
+ project_id VARCHAR(64) NOT NULL,
+ actor VARCHAR(64) NOT NULL,
+ request_id VARCHAR(64) NOT NULL,
+ input_hash CHAR(64) NOT NULL,
+ principal JSON NOT NULL,
+ session_id VARCHAR(64) NOT NULL,
+ document JSON NOT NULL,
+ status VARCHAR(24) NOT NULL,
+ phase VARCHAR(32) NOT NULL,
+ model_calls INT NOT NULL DEFAULT 0,
+ pending_cancel BOOLEAN NOT NULL DEFAULT FALSE,
+ lease_owner VARCHAR(64) NOT NULL DEFAULT '',
+ attempt INT NOT NULL DEFAULT 0,
+ lease_until DATETIME(6) NULL,
+ deadline DATETIME(6) NOT NULL,
+ created_at DATETIME(6) NOT NULL,
+ updated_at DATETIME(6) NOT NULL,
+ UNIQUE KEY agent_run_request (tenant_id,project_id,actor,request_id),
+ KEY agent_run_poll (status,pending_cancel,lease_until,created_at)
+) ENGINE=InnoDB;

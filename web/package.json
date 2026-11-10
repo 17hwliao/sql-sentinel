@@ -11,11 +11,13 @@
     "build": "vite build",
     "start": "node server.mjs",
     "test": "node --experimental-vm-modules --test test/*.test.mjs",
+    "test:redis": "node --test test/redis.integration.mjs",
     "check:config": "node check-config.mjs --probe"
   },
   "dependencies": {
-    "@clerk/clerk-js": "6.40.0",
-    "jose": "6.2.13"
+    "jose": "6.2.13",
+    "openid-client": "6.8.8",
+    "redis": "6.3.0"
   },
   "devDependencies": {
     "vite": "8.3.5"

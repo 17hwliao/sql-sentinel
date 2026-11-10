@@ -4,9 +4,9 @@
 
 <h1 align="center">SQL Sentinel</h1>
 
-<p align="center"><strong>SQL recommendations backed by evidence.</strong></p>
+<p align="center"><strong>A SQL diagnosis tool for coding agents.</strong></p>
 
-<p align="center">SQL diagnostics and PR review, with bounded proposals, isolated shadow validation, and graded evidence.</p>
+<p align="center">Connect through MCP to diagnose MySQL queries and retrieve evidence from an isolated shadow database.</p>
 
 <p align="center">
   <a href="https://github.com/17hwliao/sql-sentinel/tree/master"><img alt="Source branch: master" src="https://img.shields.io/badge/source-master-72e5b2?style=flat&amp;color=72e5b2&amp;labelColor=555555" /></a>
@@ -23,7 +23,7 @@
 
 ---
 
-SQL Sentinel connects SQL admission, execution plans, candidate indexes or rewrites, shadow validation, and approval into a traceable evidence chain. Eino proposes bounded candidates; deterministic Go code validates and executes them. Reports state their evidence level, supporting facts, and unresolved assumptions.
+Use SQL Sentinel from OpenCode or Claude Code to submit an explicit SQL query, track the diagnosis, and retrieve a report. The MCP process runs alongside the client and calls the Sentinel API using project-scoped credentials. The Sentinel worker checks the SQL and table scope, validates bounded candidates in MySQL shadow databases, and records the resulting evidence. The web console and GitHub PR integration use the same diagnosis service.
 
 | Bounded proposals | Isolated validation | Traceable conclusions |
 | :--- | :--- | :--- |
@@ -33,28 +33,33 @@ SQL Sentinel connects SQL admission, execution plans, candidate indexes or rewri
 
 ```mermaid
 flowchart LR
-    I["Manual SQL / GitHub PR"] --> A["AST admission / authorization"]
-    A --> E["Schema / snapshot / baseline plan"]
-    E --> P["Bounded Eino proposal"]
+    M["OpenCode / Claude Code"] --> T["Sentinel MCP"]
+    T --> J["Scoped API / durable diagnosis job"]
+    I["Web console / GitHub PR"] --> J
+    J --> A["AST admission / table authorization"]
+    A --> E["Schema / baseline plan"]
+    E --> P["Bounded Eino diagnosis"]
     P --> V["Go validation / candidate shadow"]
-    V --> R["L1 report / immutable hash"]
+    V -->|Structured observations| P
+    V --> R["L1 report / evidence hash"]
     R --> H["Human approval"]
     H --> B["Paired A/B / equivalence / evidence gates"]
 ```
 
-Default analysis produces L1 plan evidence. Approved benchmark jobs record their results separately; L2 or L3 eligibility depends on the actual measurements and admission gates. There is no API for automatically applying DDL to production.
+MCP submissions select the bounded Agent mode. Existing diagnosis requests keep the fixed workflow by default. The Agent can revise a rejected candidate using tool observations or finish without a recommendation. Its evidence is limited to L1. Human approval and separately scheduled benchmark jobs govern any L2 or L3 claims.
 
 ### Capabilities
 
 | Area | Implementation and guide |
 | :--- | :--- |
+| **MCP tools** | Submit a diagnosis, check its status, retrieve a bounded evidence report, or cancel the task. [MCP setup](docs/mcp.md) · [OpenCode and Claude Code](docs/agent-client.md). |
 | **SQL and table authorization** | Bounded MySQL SELECT / WITH / UNION support, AST admission, table allowlists, and scope checks. [SQL boundaries](docs/backend-expansion.md). |
 | **Durable jobs** | API → MySQL outbox → Kafka → worker / verifier, with persisted reports, lease recovery, and duplicate-event handling. [Backend baseline](docs/backend-release.md). |
-| **Candidates and rewrites** | A finite evidence → draft → validate → decision graph, index proposals, explicit read-only rewrites, and result-equivalence checks. [Proposal contract](docs/backend-roadmap.md). |
+| **Candidates and rewrites** | A fixed diagnosis path and an optional Agent loop that can choose bounded evidence actions and revise candidates. The existing explicit read-only rewrite and equivalence checks remain available. [Proposal contract](docs/backend-roadmap.md). |
 | **Approval and measurement** | JWT / Casbin scopes, immutable report-hash approval, paired A/B, noise gates, and conditional L2/L3 eligibility. [Extension contract](docs/backend-expansion.md). |
 | **Knowledge and history** | Persistent RAG, source-bound answers, and optional Elasticsearch historical priors. History cannot upgrade current evidence. [RAG](docs/backend-expansion.md#rag) · [History](docs/backend-roadmap.md). |
 | **Integrations** | GitHub PR webhooks and optional comments, AgentMesh model access, and an mTLS verifier. [Baseline](docs/backend-release.md) · [Runtime contract](docs/backend-roadmap.md). |
-| **Console and experiments** | An independent web console, plus dedicated PostgreSQL comparison and concurrent write-cost experiments. [Console](web/README.md) · [Experiment boundaries](docs/backend-roadmap.md). |
+| **Console and experiments** | An independent Casdoor-backed console with a persistent SQL Agent run view, plus dedicated PostgreSQL comparison and write-cost experiments. [Website Agent](docs/agent-website.md) · [Experiment boundaries](docs/backend-roadmap.md). |
 
 ## Evidence levels
 
@@ -68,6 +73,20 @@ Default analysis produces L1 plan evidence. Approved benchmark jobs record their
 `eligible_for_performance_claim` is the report's performance-claim eligibility field. Earlier experiments returned a directional `Better` result while exceeding the noise threshold, so their conclusion remained L1/false. Those measurements are not presented as validated gains. Representative L3 results, real-model quality, and live GitHub integration still need the corresponding data and environment evidence.
 
 ## Quick start
+
+### Connect a coding agent over MCP
+
+Build the local MCP process from the repository root:
+
+```sh
+go build -o ./sentinel-mcp ./cmd/sentinel-mcp
+```
+
+Use `sentinel-mcp.exe` on Windows. Prepare a reachable Sentinel API and a short-lived writer token scoped to the project and allowed tables. Copy [the example configuration](cmd/sentinel-mcp/config.example.json) to a private directory, set the API origin and token file, then configure the client to launch the binary over stdio with `SQL_SENTINEL_MCP_CONFIG_FILE` pointing to the configuration. For the joint HTTPS deployment, set `api_base_path` to `/sentinel`. Follow the [client-specific configuration examples](docs/mcp.md).
+
+Ask the client to diagnose a query you provide. The tool returns a durable task ID, then the client can read the status and evidence. The MCP process uses the Sentinel token. The deployed Sentinel worker needs its own model configuration.
+
+OpenCode and Claude Code both completed the submit, poll, and report flow locally against real Kafka and MySQL shadow databases with controlled model responses. See the [verification record](docs/agent-outer-verification.md).
 
 ### Try the CLI without a database
 
@@ -94,7 +113,7 @@ npm run build
 npm start
 ```
 
-Open `http://127.0.0.1:4181/?preview=1` for a labeled sample-data preview. Real operations need backend and identity configuration; live Clerk email delivery and cross-console login still require setup. See the [console guide](web/README.md).
+Open `http://127.0.0.1:4181/?preview=1` for a labeled sample-data preview. Real operations require the Sentinel backend and Casdoor sign-in. Local sign-in and product authorization were verified using a test inbox. Real QQ SMTP delivery and public HTTPS still require commissioning. See the [console guide](web/README.md).
 
 ### Prepare a joint deployment
 
@@ -123,6 +142,7 @@ Supporting guides and historical records are currently primarily in Chinese. Thi
 
 | Start here for | Read |
 | :--- | :--- |
+| Agent tools and verification | [MCP integration](docs/mcp.md) · [Bounded Agent runtime](docs/agent-runtime.md) · [End-to-end verification](docs/agent-outer-verification.md) |
 | Services, APIs, and job recovery | [Backend baseline](docs/backend-release.md) → [Core extensions](docs/backend-expansion.md) → [Runtime extensions](docs/backend-roadmap.md) |
 | Console, identity, and approval | [Web console](web/README.md) · [JWT and approval](docs/backend-expansion.md) |
 | Data, counterexamples, and measurement | [Local improvements](docs/local-improvements.md) · [Original evaluation snapshot](evaluation_report.json) |

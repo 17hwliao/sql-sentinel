@@ -122,7 +122,7 @@ func (s *MySQLStore) EnsureSchema(ctx context.Context) error {
 	if s == nil || s.DB == nil {
 		return errors.New("mysql store DB is required")
 	}
-	for _, stmt := range splitSchema(Schema) {
+	for _, stmt := range splitSchema(Schema + AgentSchema) {
 		if _, err := s.DB.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("ensure schema: %w", err)
 		}
@@ -141,6 +141,9 @@ func splitSchema(schema string) []string {
 }
 
 func (s *MySQLStore) Receive(ctx context.Context, in ReceiveInput) (ReceiveResult, error) {
+	if in.Options.AgentMode != "" && (!validAgentOptions(in.Options) || string(in.CandidateSpec) != "{}") {
+		return ReceiveResult{}, ErrRejected
+	}
 	if in.DeliveryID == "" || in.PRNumber < 1 || len(in.SQL) == 0 || len(in.CandidateSpec) == 0 {
 		return ReceiveResult{}, errors.New("invalid receive input")
 	}

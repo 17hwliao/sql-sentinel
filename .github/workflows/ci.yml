@@ -43,6 +43,13 @@ jobs:
         with: {node-version: '22.22.2', cache: npm, cache-dependency-path: web/package-lock.json}
       - run: npm ci --no-fund
       - run: npm test
+      - name: Redis-backed cookie sessions
+        run: |
+          printf '%s' 'ci-session-fixture-only' > "$RUNNER_TEMP/console-redis-password"
+          docker run -d --name console-redis-ci -p 127.0.0.1:63799:6379 redis:7.4-alpine redis-server --requirepass ci-session-fixture-only
+          CONSOLE_TEST_REDIS_URL=redis://127.0.0.1:63799/0 CONSOLE_TEST_REDIS_PASSWORD_FILE="$RUNNER_TEMP/console-redis-password" npm run test:redis
+      - if: always()
+        run: docker rm -f console-redis-ci || true
       - run: npm run build
       - run: npm audit --omit=dev --registry=https://registry.npmjs.org
       - run: docker build -t console-ci .

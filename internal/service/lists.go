@@ -30,7 +30,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	status := r.URL.Query().Get("status")
 	switch status {
-	case "", "RECEIVED", "QUEUED", "RUNNING", "RETRYING", "COMPLETED", "REJECTED", "DEAD_LETTER":
+	case "", "RECEIVED", "QUEUED", "RUNNING", "RETRYING", "COMPLETED", "REJECTED", "DEAD_LETTER", "CANCELLED":
 	default:
 		respond(w, 400, map[string]string{"code": "invalid_status"})
 		return

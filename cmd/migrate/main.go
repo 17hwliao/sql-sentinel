@@ -6,6 +6,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"log"
 	"os"
+	"sqlsentinel/internal/agentrun"
 	"sqlsentinel/internal/configenv"
 	workflow "sqlsentinel/internal/kafka"
 	"time"
@@ -28,5 +29,9 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-	return (&workflow.MySQLStore{DB: db}).EnsureSchema(ctx)
+	if err = (&workflow.MySQLStore{DB: db}).EnsureSchema(ctx); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, agentrun.Schema)
+	return err
 }

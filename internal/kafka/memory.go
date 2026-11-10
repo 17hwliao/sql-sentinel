@@ -32,6 +32,9 @@ func NewMemoryStore() *MemoryStore {
 }
 
 func (s *MemoryStore) Receive(_ context.Context, in ReceiveInput) (ReceiveResult, error) {
+	if in.Options.AgentMode != "" && (!validAgentOptions(in.Options) || string(in.CandidateSpec) != "{}") {
+		return ReceiveResult{}, ErrRejected
+	}
 	if in.DeliveryID == "" || in.PRNumber < 1 || len(in.SQL) == 0 || len(in.CandidateSpec) == 0 {
 		return ReceiveResult{}, errors.New("invalid receive input")
 	}
@@ -69,7 +72,7 @@ func (s *MemoryStore) Claim(_ context.Context, jobID, owner string, now time.Tim
 	if !ok {
 		return Job{}, false, ErrNotFound
 	}
-	if job.Status == Completed || job.Status == Rejected || job.Status == DeadLetter {
+	if job.Status == Completed || job.Status == Rejected || job.Status == DeadLetter || job.Status == Cancelled {
 		return cloneJob(job), false, nil
 	}
 	if job.Status == Running && job.LeaseUntil.After(now) {

@@ -1,0 +1,8 @@
+{
+  "api_origin": "https://api.example.test",
+  "api_base_path": "/sentinel",
+  "tenant_id": "your_tenant",
+  "project_id": "your_project",
+  "token_file": "/private/sql-sentinel-writer.jwt",
+  "allow_loopback_http": false
+}

@@ -26,6 +26,7 @@ const (
 	Rejected   JobStatus = "REJECTED"
 	Retrying   JobStatus = "RETRYING"
 	DeadLetter JobStatus = "DEAD_LETTER"
+	Cancelled  JobStatus = "CANCELLED"
 )
 
 var ErrNotFound = errors.New("kafka workflow job not found")
@@ -38,18 +39,28 @@ var ErrBacklogFull = errors.New("job backlog limit reached")
 func sameDelivery(job Job, in ReceiveInput) bool {
 	left, right := job.Options, in.Options.normalized()
 	left.TraceParent, left.TraceState, right.TraceParent, right.TraceState = "", "", "", ""
+	// A renewed credential does not create a second task; the original task's
+	// execution authority remains bound to the original server-side session.
+	left.AuthorizationSession, right.AuthorizationSession = "", ""
 	return job.PRNumber == in.PRNumber && job.SQLSHA256 == digest(in.SQL) && job.CandidateSpecSHA256 == digest(in.CandidateSpec) && left == right
 }
 
 type JobOptions struct {
-	TraceParent       string `json:"traceparent,omitempty"`
-	TraceState        string `json:"tracestate,omitempty"`
-	TenantID          string `json:"tenant_id"`
-	ProjectID         string `json:"project_id"`
-	Actor             string `json:"actor"`
-	Benchmark         bool   `json:"benchmark"`
-	ApprovedJobID     string `json:"approved_job_id,omitempty"`
-	ApprovalReportSHA string `json:"approval_report_sha,omitempty"`
+	AgentMode            string `json:"agent_mode,omitempty"`
+	AgentVersion         string `json:"agent_version,omitempty"`
+	AgentDecisions       int    `json:"agent_decisions,omitempty"`
+	AgentEvaluations     int    `json:"agent_evaluations,omitempty"`
+	AgentTables          string `json:"agent_tables,omitempty"`
+	AuthorizationSession string `json:"authorization_session,omitempty"`
+	AuthorizationRole    string `json:"authorization_role,omitempty"`
+	TraceParent          string `json:"traceparent,omitempty"`
+	TraceState           string `json:"tracestate,omitempty"`
+	TenantID             string `json:"tenant_id"`
+	ProjectID            string `json:"project_id"`
+	Actor                string `json:"actor"`
+	Benchmark            bool   `json:"benchmark"`
+	ApprovedJobID        string `json:"approved_job_id,omitempty"`
+	ApprovalReportSHA    string `json:"approval_report_sha,omitempty"`
 }
 
 func (o JobOptions) normalized() JobOptions {

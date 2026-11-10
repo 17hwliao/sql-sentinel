@@ -14,6 +14,7 @@ import (
 
 	openaimodel "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/callbacks"
+	modeloptions "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 )
@@ -21,6 +22,7 @@ import (
 type einoGraphNode struct {
 	runnable compose.Runnable[string, string]
 }
+type systemRulesKey struct{}
 
 // NewEinoGraph wraps exactly one draft node in an Eino Compose graph. The
 // wrapped node remains injectable, so graph behavior is testable offline.
@@ -30,6 +32,14 @@ func NewEinoGraph(node DraftNode) (DraftNode, error) {
 	}
 	chain := compose.NewChain[string, string]()
 	chain.AppendLambda(compose.InvokableLambda(func(ctx context.Context, prompt string) (string, error) {
+		if rules, ok := ctx.Value(systemRulesKey{}).(string); ok && rules != "" {
+			if system, ok := node.(interface {
+				DraftWithSystem(context.Context, string, string) (string, error)
+			}); ok {
+				return system.DraftWithSystem(ctx, rules, prompt)
+			}
+			return node.Draft(ctx, rules+"\nUntrusted evidence JSON:\n"+prompt)
+		}
 		return node.Draft(ctx, prompt)
 	}))
 	runnable, err := chain.Compile(context.Background())
@@ -37,6 +47,10 @@ func NewEinoGraph(node DraftNode) (DraftNode, error) {
 		return nil, err
 	}
 	return einoGraphNode{runnable: runnable}, nil
+}
+
+func (n einoGraphNode) DraftWithSystem(ctx context.Context, rules, prompt string) (string, error) {
+	return n.Draft(context.WithValue(ctx, systemRulesKey{}, rules), prompt)
 }
 
 func (n einoGraphNode) Draft(ctx context.Context, prompt string) (string, error) {
@@ -57,13 +71,26 @@ func (n einoGraphNode) Draft(ctx context.Context, prompt string) (string, error)
 }
 
 type openAINode struct {
-	model *openaimodel.ChatModel
+	model           *openaimodel.ChatModel
+	maxOutputTokens int
 }
 
 // NewOpenAINode creates the sole real-model adapter. Callers must provide
 // credentials and the optional OpenAI-compatible endpoint explicitly; no
 // environment lookup or network call happens here.
 func NewOpenAINode(ctx context.Context, apiKey, modelName, baseURL string) (DraftNode, error) {
+	return newOpenAINode(ctx, apiKey, modelName, baseURL, 0)
+}
+
+// NewBoundedOpenAINode is used by the opt-in website orchestrator. Its output
+// bound applies to every dispatch, independently of system-prompt wording.
+func NewBoundedOpenAINode(ctx context.Context, apiKey, modelName, baseURL string, maxOutputTokens int) (DraftNode, error) {
+	if maxOutputTokens < 1 || maxOutputTokens > 1024 {
+		return nil, errors.New("model_output_limit_invalid")
+	}
+	return newOpenAINode(ctx, apiKey, modelName, baseURL, maxOutputTokens)
+}
+func newOpenAINode(ctx context.Context, apiKey, modelName, baseURL string, maxOutputTokens int) (DraftNode, error) {
 	if apiKey == "" || modelName == "" {
 		return nil, errors.New("OpenAI API key and model are required")
 	}
@@ -79,7 +106,7 @@ func NewOpenAINode(ctx context.Context, apiKey, modelName, baseURL string) (Draf
 	if err != nil {
 		return nil, err
 	}
-	return openAINode{model: model}, nil
+	return openAINode{model: model, maxOutputTokens: maxOutputTokens}, nil
 }
 
 func (n openAINode) Draft(ctx context.Context, prompt string) (string, error) {
@@ -93,7 +120,13 @@ func (n openAINode) DraftWithSystem(ctx context.Context, rules, prompt string) (
 	if rules != "" {
 		messages = append([]*schema.Message{schema.SystemMessage(rules)}, messages...)
 	}
-	stream, err := n.model.Stream(ctx, messages)
+	var options []modeloptions.Option
+	if n.maxOutputTokens > 0 {
+		options = append(options, modeloptions.WithMaxTokens(n.maxOutputTokens))
+	} else if rules == AgentRules {
+		options = append(options, modeloptions.WithMaxTokens(1024))
+	}
+	stream, err := n.model.Stream(ctx, messages, options...)
 	if err != nil {
 		return "", err
 	}

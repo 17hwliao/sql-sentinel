@@ -30,6 +30,7 @@ func DocumentID(jobID string) string {
 }
 
 var ErrUnavailable = errors.New("historical_prior_unavailable")
+var ErrUnauthorized = errors.New("historical_prior_unauthorized")
 var name = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 var sha = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
@@ -121,6 +122,9 @@ func (c *Client) request(ctx context.Context, method, path string, v any) ([]byt
 		return nil, ErrUnavailable
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return nil, ErrUnauthorized
+	}
 	body, e := io.ReadAll(io.LimitReader(response.Body, 1<<20+1))
 	if e != nil || len(body) > 1<<20 || response.StatusCode < 200 || response.StatusCode > 299 {
 		return nil, ErrUnavailable

@@ -2,6 +2,7 @@ package shadowdata
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 )
 
@@ -11,10 +12,11 @@ type Column struct {
 	Nullable string `json:"nullable"`
 }
 type Index struct {
-	Name     string `json:"name"`
-	Column   string `json:"column"`
-	Sequence int    `json:"sequence"`
-	Unique   bool   `json:"unique"`
+	Name       string `json:"name"`
+	Column     string `json:"column"`
+	Expression string `json:"expression,omitempty"`
+	Sequence   int    `json:"sequence"`
+	Unique     bool   `json:"unique"`
 }
 type Table struct {
 	Name          string   `json:"name"`
@@ -55,17 +57,27 @@ func Describe(ctx context.Context, db DB, tables []string) ([]Table, error) {
 		if len(t.Columns) == 0 || len(t.Columns) > 128 {
 			return nil, errors.New("schema_column_limit")
 		}
-		rows, err = db.QueryContext(ctx, "SELECT INDEX_NAME,COLUMN_NAME,SEQ_IN_INDEX,NON_UNIQUE FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY INDEX_NAME,SEQ_IN_INDEX LIMIT 129", name)
+		rows, err = db.QueryContext(ctx, "SELECT INDEX_NAME,COLUMN_NAME,EXPRESSION,SEQ_IN_INDEX,NON_UNIQUE FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY INDEX_NAME,SEQ_IN_INDEX LIMIT 129", name)
 		if err != nil {
 			return nil, err
 		}
 		for rows.Next() {
 			var index Index
+			var column, expression sql.NullString
 			var nonUnique int
-			if err = rows.Scan(&index.Name, &index.Column, &index.Sequence, &nonUnique); err != nil {
+			if err = rows.Scan(&index.Name, &column, &expression, &index.Sequence, &nonUnique); err != nil {
 				rows.Close()
 				return nil, err
 			}
+			// MySQL functional key parts have NULL COLUMN_NAME and expose their
+			// definition through EXPRESSION. Keep it as schema evidence rather
+			// than inventing a physical column the candidate compiler can use.
+			if !column.Valid && !expression.Valid {
+				rows.Close()
+				return nil, errors.New("schema_index_metadata_invalid")
+			}
+			index.Column = column.String
+			index.Expression = expression.String
 			index.Unique = nonUnique == 0
 			t.Indexes = append(t.Indexes, index)
 		}

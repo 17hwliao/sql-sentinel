@@ -18,11 +18,12 @@ import (
 )
 
 type Principal struct {
-	Subject string   `json:"subject"`
-	Role    string   `json:"role"`
-	Tenant  string   `json:"tenant_id"`
-	Project string   `json:"project_id"`
-	Tables  []string `json:"tables,omitempty"`
+	SessionID string   `json:"-"`
+	Subject   string   `json:"subject"`
+	Role      string   `json:"role"`
+	Tenant    string   `json:"tenant_id"`
+	Project   string   `json:"project_id"`
+	Tables    []string `json:"tables,omitempty"`
 }
 type claims struct {
 	Principal
@@ -63,7 +64,7 @@ m = r.role == p.role && (p.action == "*" || r.action == p.action)`)
 	if err != nil {
 		return nil, err
 	}
-	for role, actions := range map[string][]string{"admin": {"*"}, "reader": {"job.read", "rag.query"}, "writer": {"job.read", "job.create", "rag.query", "rag.write"}, "reviewer": {"job.read", "approval.decide", "benchmark.create", "audit.read", "rag.query"}} {
+	for role, actions := range map[string][]string{"admin": {"*"}, "reader": {"job.read", "rag.query"}, "writer": {"job.read", "job.create", "job.cancel", "rag.query", "rag.write"}, "reviewer": {"job.read", "approval.decide", "benchmark.create", "audit.read", "rag.query"}} {
 		for _, action := range actions {
 			if _, err = e.AddPolicy(role, action); err != nil {
 				return nil, err
@@ -95,6 +96,7 @@ func (a *Auth) Authenticate(ctx context.Context, header string) (Principal, erro
 	if count != 1 {
 		return Principal{}, errors.New("unauthorized")
 	}
+	c.Principal.SessionID = c.ID
 	return c.Principal, nil
 }
 func valid(p Principal) bool {

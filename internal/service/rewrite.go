@@ -48,9 +48,8 @@ func (r Runner) runRewrite(ctx context.Context, job workflow.Job, tables []strin
 			return e
 		}
 	}
-	var lock sql.NullInt64
-	if cand.QueryRowContext(ctx, "SELECT GET_LOCK(CONCAT('sentinel-shadow:',DATABASE()),10)").Scan(&lock) != nil || !lock.Valid || lock.Int64 != 1 {
-		return errors.New("shadow_busy")
+	if e = acquireShadowLock(ctx, cand); e != nil {
+		return e
 	}
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)

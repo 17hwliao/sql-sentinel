@@ -2,6 +2,12 @@
 
 本目录只提供入口与阅读顺序；不移动、不删除、不重写既有规格、实验报告或私有阶段记录。需要判断一个结论是否可信时，优先回到对应的原始 JSON、规格和代码。
 
+2026-11 Agent v1 增量：[运行契约](agent-runtime.md)、[MCP 接入](mcp.md)、[场景对照](agent-evaluation.md)、[Review 修复](agent-review.md)、[验收及未验证项](agent-verification.md)。默认固定流程保留；本地测试、真实客户端连接与真实模型调用的证据范围分别记录。
+
+独立网站外层：[实施契约](agent-outer-design.md)、[网页配置／使用与部署](agent-website.md)、[外部客户端组合接入](agent-client.md)。外层 run 与内层诊断 job 分开，工具执行不放入网关。
+
+当前实现与审查结果：[网站／客户端验收](agent-outer-verification.md)、[两项目全量 Review 与修复](full-review-2026-11-06.md)。测试版本、原失败、实际依赖、未验证外部条件分别列出。
+
 ## 推荐阅读路径
 
 1. [项目 README](../README.md)：目标、边界、可运行命令与当前事实。

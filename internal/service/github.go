@@ -23,6 +23,8 @@ import (
 )
 
 type GitHub struct {
+	AgentMode              bool
+	AllowedTables          map[string]bool
 	Secret, Token, BaseURL string
 	Repositories           map[string]bool
 	Client                 *http.Client
@@ -164,7 +166,12 @@ func (g *GitHub) Receive(w http.ResponseWriter, r *http.Request, store *workflow
 				sum := sha256.Sum256([]byte(delivery + "\x00" + file.Filename + "\x00" + strconv.Itoa(statement.StartLine)))
 				id := hex.EncodeToString(sum[:])
 				source, _ := json.Marshal(Source{Repository: event.Repository.FullName, HeadSHA: actual.Head.SHA, File: file.Filename, StartLine: statement.StartLine, EndLine: statement.EndLine})
-				result, err := store.Receive(r.Context(), workflow.ReceiveInput{DeliveryID: id, PRNumber: event.Number, SQL: []byte(statement.SQL), CandidateSpec: []byte("{}"), SourceJSON: source})
+				options, optionErr := g.jobOptions(statement.SQL)
+				if optionErr != nil {
+					respond(w, 403, map[string]string{"code": "table_not_allowed"})
+					return
+				}
+				result, err := store.Receive(r.Context(), workflow.ReceiveInput{DeliveryID: id, PRNumber: event.Number, SQL: []byte(statement.SQL), CandidateSpec: []byte("{}"), SourceJSON: source, Options: options})
 				if err != nil {
 					if errors.Is(err, workflow.ErrBacklogFull) {
 						respond(w, 429, map[string]string{"code": "job_backlog_full"})

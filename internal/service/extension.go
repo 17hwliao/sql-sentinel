@@ -28,6 +28,16 @@ func jobError(w http.ResponseWriter, err error) {
 }
 func action(r *http.Request) string {
 	switch {
+	case strings.HasPrefix(r.URL.Path, "/agent/"):
+		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel") {
+			return "job.cancel"
+		}
+		if r.Method == "POST" {
+			return "job.create"
+		}
+		return "job.read"
+	case strings.HasSuffix(r.URL.Path, "/cancel") && r.Method == "POST":
+		return "job.cancel"
 	case strings.HasPrefix(r.URL.Path, "/auth/"):
 		return "token.issue"
 	case r.URL.Path == "/audit":
@@ -83,7 +93,13 @@ func (s *Server) tablesAllowed(p identity.Principal, query string) bool {
 	return len(tables) > 0
 }
 func (s *Server) scopedJob(r *http.Request, id string) (workflow.Job, error) {
-	j, err := s.Store.Get(r.Context(), id)
+	var j workflow.Job
+	var err error
+	if isJobIDPath(r) {
+		j, err = s.Store.GetByID(r.Context(), id)
+	} else {
+		j, err = s.Store.Get(r.Context(), id)
+	}
 	if err != nil {
 		return j, err
 	}
@@ -388,7 +404,7 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 	if isBenchmark {
 		suffix = "/benchmark"
 	}
-	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/jobs/"), suffix)
+	id := strings.TrimSuffix(jobPathReference(r), suffix)
 	if !deliveryPattern.MatchString(id) {
 		respond(w, 400, map[string]string{"code": "invalid_id"})
 		return
@@ -446,7 +462,7 @@ func (s *Server) jobAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	specRaw, e := validateProposal(report.Spec, string(job.SQL))
-	if e != nil || (report.Rewrite != nil && !report.Rewrite.Equivalent) {
+	if e != nil || (report.Rewrite != nil && !report.Rewrite.Equivalent) || !agentApprovalEligible(job, raw, specRaw) {
 		respond(w, 409, map[string]string{"code": "candidate_not_ready"})
 		return
 	}

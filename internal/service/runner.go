@@ -12,7 +12,9 @@ import (
 	"fmt"
 	mysql "github.com/go-sql-driver/mysql"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +35,7 @@ import (
 )
 
 type Runner struct {
+	agentGuard                   func(context.Context) error
 	History                      *historicalprior.Client
 	Control, Baseline, Candidate *sql.DB
 	Model                        agentgraph.DraftNode
@@ -44,7 +47,7 @@ type Runner struct {
 func (r Runner) Run(ctx context.Context, job workflow.Job) error {
 	verifierrpc.Notify(ctx, "admission")
 	ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier{"traceparent": job.Options.TraceParent, "tracestate": job.Options.TraceState})
-	ctx, span := otel.Tracer("sql-sentinel").Start(ctx, "sql.job")
+	ctx, span := otel.Tracer("sql-sentinel").Start(ctx, "sql.job", trace.WithAttributes(attribute.String("job.id", job.ID), attribute.Int("job.attempt", job.Attempts)))
 	defer span.End()
 	if len(job.ID) < 24 || len(job.SQL) > 64<<10 || len(job.CandidateSpec) > 64<<10 {
 		return workflow.ErrRejected
@@ -58,6 +61,9 @@ func (r Runner) Run(ctx context.Context, job workflow.Job) error {
 	tables, inspectErr := sqladmit.Inspect(string(job.SQL))
 	if inspectErr != nil || len(tables) == 0 {
 		return workflow.ErrRejected
+	}
+	if job.Options.AgentMode != "" {
+		return r.runAgent(ctx, job, tables)
 	}
 	for _, table := range tables {
 		if r.AllowedTables != nil && !r.AllowedTables[table] {
@@ -250,9 +256,8 @@ func (r Runner) explain(ctx context.Context, query string, raw []byte, measure b
 	if _, err = baseConn.ExecContext(ctx, "SET SESSION max_execution_time=2000"); err != nil {
 		return report, nil, err
 	}
-	var locked sql.NullInt64
-	if err = conn.QueryRowContext(ctx, "SELECT GET_LOCK(CONCAT('sentinel-shadow:',DATABASE()),10)").Scan(&locked); err != nil || !locked.Valid || locked.Int64 != 1 {
-		return report, nil, errors.New("shadow_busy")
+	if err = acquireShadowLock(ctx, conn); err != nil {
+		return report, nil, err
 	}
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -262,18 +267,27 @@ func (r Runner) explain(ctx context.Context, query string, raw []byte, measure b
 		}
 		var released sql.NullInt64
 		if releaseErr := conn.QueryRowContext(cleanup, "SELECT RELEASE_LOCK(CONCAT('sentinel-shadow:',DATABASE()))").Scan(&released); releaseErr != nil || !released.Valid || released.Int64 != 1 {
+			err = errors.New("shadow_lock_release_failed")
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 		}
 	}()
 	if err = r.cleanIndexes(ctx, conn); err != nil {
 		return report, nil, err
 	}
-	report, err = (shadowgate.Gate{Baseline: baseConn, Candidate: conn, AllowedTables: r.AllowedTables}).Run(ctx, prepared)
+	var baselineDB, candidateDB shadowdata.DB = baseConn, conn
+	if r.agentGuard != nil {
+		if err = r.agentGuard(ctx); err != nil {
+			return report, nil, err
+		}
+		baselineDB = agentGuardDB{DB: baseConn, check: r.agentGuard}
+		candidateDB = agentGuardDB{DB: conn, check: r.agentGuard}
+	}
+	report, err = (shadowgate.Gate{Baseline: baselineDB, Candidate: candidateDB, AllowedTables: r.AllowedTables}).Run(ctx, prepared)
 	if err != nil {
 		return report, nil, err
 	}
 	var plan string
-	err = baseConn.QueryRowContext(ctx, "EXPLAIN FORMAT=JSON "+prepared.SQL).Scan(&plan)
+	err = baselineDB.QueryRowContext(ctx, "EXPLAIN FORMAT=JSON "+prepared.SQL).Scan(&plan)
 	if err == nil && measure {
 		tables, e := sqladmit.Inspect(query)
 		if e != nil {
