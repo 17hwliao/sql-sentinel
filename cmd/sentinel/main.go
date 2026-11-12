@@ -114,7 +114,7 @@ webhook-serve 参数:
 
 evaluate 参数:
   --manifest PATH          评测样例 manifest（默认 examples/evaluation/manifest.json）
-  --validation PATH        历史测量 JSON（默认 validation_result.json）
+  --validation PATH        历史测量 JSON（默认使用本地 validation_result.json，否则读取仓库归档）
   --pipeline-report PATH   本次 smoke 的 pipeline_report.json（可选）
   --out PATH               评测报告 JSON（默认 evaluation_report.json）
   --run-security-tests     重跑固定安全测试（默认 true）

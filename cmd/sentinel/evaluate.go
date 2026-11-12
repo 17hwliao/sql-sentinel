@@ -16,7 +16,7 @@ import (
 func runEvaluate(args []string) error {
 	fs := flag.NewFlagSet("evaluate", flag.ExitOnError)
 	manifest := fs.String("manifest", "examples/evaluation/manifest.json", "strict evaluation manifest")
-	validation := fs.String("validation", "validation_result.json", "historical measurement JSON")
+	validation := fs.String("validation", defaultEvaluationMeasurement(), "historical measurement JSON")
 	pipelineReport := fs.String("pipeline-report", "", "current smoke pipeline_report.json with step timings")
 	out := fs.String("out", "evaluation_report.json", "evaluation report JSON path")
 	runSecurity := fs.Bool("run-security-tests", true, "run fixed local adversarial test checklist")
@@ -52,6 +52,17 @@ func runEvaluate(args []string) error {
 	}
 	fmt.Printf("evaluation report: %s (static=%d/%d, security=%s, eligible_for_performance_claim=%t)\n", *out, report.StaticRules.Detected, report.StaticRules.Total, report.Security.Status, report.EligibleForPerformanceClaim)
 	return nil
+}
+
+func defaultEvaluationMeasurement() string {
+	const recent = "validation_result.json"
+	const archived = "docs/archive/evidence/validation_result.json"
+	if _, err := os.Stat(recent); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(archived); err == nil {
+			return archived
+		}
+	}
+	return recent
 }
 
 func gitCommit() string {

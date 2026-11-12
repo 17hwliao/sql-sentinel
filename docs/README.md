@@ -1,6 +1,6 @@
 # SQL Sentinel 文档导航
 
-本目录只提供入口与阅读顺序；不移动、不删除、不重写既有规格、实验报告或私有阶段记录。需要判断一个结论是否可信时，优先回到对应的原始 JSON、规格和代码。
+本目录提供入口、阅读顺序和归档的历史资料。需要判断一个结论是否可信时，优先回到对应的原始 JSON、规格和代码。
 
 2026-11 Agent v1 增量：[运行契约](agent-runtime.md)、[MCP 接入](mcp.md)、[场景对照](agent-evaluation.md)、[Review 修复](agent-review.md)、[验收及未验证项](agent-verification.md)。默认固定流程保留；本地测试、真实客户端连接与真实模型调用的证据范围分别记录。
 
@@ -11,7 +11,7 @@
 ## 推荐阅读路径
 
 1. [项目 README](../README.md)：目标、边界、可运行命令与当前事实。
-2. [实施步骤](../实施步骤.md)：最初路线图与后置扩展；它是规划来源，不等于所有条目都已实现。
+2. [实施步骤](archive/roadmap.zh-CN.md)：最初路线图与后置扩展；它是规划来源，不等于所有条目都已实现。
 3. `specs/`：每个 feature 的原始需求、计划和任务，是实现范围的权威记录。
 4. `.private/stage-records/`：本机阶段复盘与真实命令输出，仅供本地复盘，Git 不跟踪。
 
@@ -27,7 +27,7 @@
 
 ## 证据与边界
 
-- 根目录的 `*_report.json`、`validation_result.json`、`series_admission.json` 是机器可读原始产物；其中 `eligible_for_performance_claim` 才是性能声称的唯一资格字段。
+- [历史证据目录](archive/evidence/)中的 `*_report.json`、`validation_result.json`、`series_admission.json` 是机器可读原始产物；其中 `eligible_for_performance_claim` 才是性能声称的唯一资格字段。
 - 当前 100 万行影子库实验的方向性结果为 Better，但 candidate 噪声 13.02% 超过约定阈值。因此结论保持 L1/false，不能改写为已验证性能收益。
 - `.private/` 包含阶段记录、交接资料、简历要点与真实联桥报告。它被 Git 忽略，不能作为公开仓库的可复现替代品。
 - 016 的联桥报告只证明 SQL Sentinel 与 AgentMesh 的本机 SSE 传输互操作；不传 SQL、CandidateSpec 或模型 delta，固定为 L1/false。

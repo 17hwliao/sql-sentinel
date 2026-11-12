@@ -10,8 +10,8 @@
 
 <p align="center">
   <a href="https://github.com/17hwliao/sql-sentinel/tree/master"><img alt="Source branch: master" src="https://img.shields.io/badge/source-master-72e5b2?style=flat&amp;color=72e5b2&amp;labelColor=555555" /></a>
-  <a href="go.mod"><img alt="Go 1.26.10 or later" src="https://img.shields.io/badge/Go-1.26.10%2B-72e5b2?style=flat&amp;color=72e5b2&amp;labelColor=555555" /></a>
-  <a href="#project-license"><img alt="Project license not specified" src="https://img.shields.io/badge/license-unspecified-72e5b2?style=flat&amp;color=72e5b2&amp;labelColor=555555" /></a>
+  <a href="go.mod"><img alt="Go 1.26.11 or later" src="https://img.shields.io/badge/Go-1.26.11%2B-72e5b2?style=flat&amp;color=72e5b2&amp;labelColor=555555" /></a>
+  <a href="#project-license"><img alt="GNU GPL v3.0 only" src="https://img.shields.io/badge/license-GPL--3.0--only-72e5b2?style=flat&amp;color=72e5b2&amp;labelColor=555555" /></a>
 </p>
 
 <p align="center">
@@ -145,7 +145,7 @@ Supporting guides and historical records are currently primarily in Chinese. Thi
 | Agent tools and verification | [MCP integration](docs/mcp.md) · [Bounded Agent runtime](docs/agent-runtime.md) · [End-to-end verification](docs/agent-outer-verification.md) |
 | Services, APIs, and job recovery | [Backend baseline](docs/backend-release.md) → [Core extensions](docs/backend-expansion.md) → [Runtime extensions](docs/backend-roadmap.md) |
 | Console, identity, and approval | [Web console](web/README.md) · [JWT and approval](docs/backend-expansion.md) |
-| Data, counterexamples, and measurement | [Local improvements](docs/local-improvements.md) · [Original evaluation snapshot](evaluation_report.json) |
+| Data, counterexamples, and measurement | [Local improvements](docs/local-improvements.md) · [Original evaluation snapshot](docs/archive/evidence/evaluation_report.json) |
 | Engineering checks and interfaces | [Engineering verification](docs/engineering-verification.md) · [OpenAPI](docs/openapi.json) |
 | Deployment and rollback | [Joint deployment templates](https://github.com/17hwliao/AgentMesh/tree/master/deployments/backend-stack) · [Console deployment](https://github.com/17hwliao/AgentMesh/blob/master/deployments/backend-stack/WEB-PRODUCTION.md) |
 | Specifications and earlier experiments | [Documentation index](docs/README.md) · [Specifications](specs/) · [Original README archive](docs/archive/readme-before-english.zh-CN.md) |
@@ -163,4 +163,4 @@ The [archive](docs/archive/readme-before-english.zh-CN.md) preserves the origina
 
 ## Project license
 
-This repository currently has no project license file. The badge reports that status; it does not assign a license. Third-party dependency licenses are separate.
+The project source code is licensed under the [GNU General Public License v3.0 only](LICENSE) (`GPL-3.0-only`). Third-party dependencies retain their respective licenses.

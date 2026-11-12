@@ -125,7 +125,7 @@ python scripts/export-backend-stack.py --out ../deploy
 | :--- | :--- |
 | 当前服务、API 和任务恢复 | [后端基线](../../docs/backend-release.md) → [核心扩展](../../docs/backend-expansion.md) → [后续运行契约](../../docs/backend-roadmap.md) |
 | 控制台、身份与权限 | [Web 控制台](../../web/README.md) · [审批与 JWT](../../docs/backend-expansion.md#身份与审批) |
-| 数据、反例与测量 | [本地改进契约](../../docs/local-improvements.md) · [证据原始快照](../../evaluation_report.json) |
+| 数据、反例与测量 | [本地改进契约](../../docs/local-improvements.md) · [证据原始快照](evidence/evaluation_report.json) |
 | 工程验证与接口 | [工程验收说明](../../docs/engineering-verification.md) · [OpenAPI](../../docs/openapi.json) |
 | 部署与回退 | [联合部署目录](https://github.com/17hwliao/AgentMesh/tree/master/deployments/backend-stack) · [双控制台上线方案](https://github.com/17hwliao/AgentMesh/blob/master/deployments/backend-stack/WEB-PRODUCTION.md) |
 | 原始设计与阶段依据 | [完整文档导航](../../docs/README.md) · [原始规格](../../specs/) |
@@ -306,7 +306,7 @@ Go 校验器必须验证：库表字段是否存在、索引列数量与类型�
 
 ## 11. 验收与评测
 
-最终机器可读快照见 [`evaluation_report.json`](../../evaluation_report.json)。它记录评测时的 Git SHA、UTC 时间、
+最终机器可读快照见 [`evaluation_report.json`](evidence/evaluation_report.json)。它记录评测时的 Git SHA、UTC 时间、
 样例集 `dataset_version` 与 manifest SHA-256；当前快照是在有未提交 015 变更的工作树上生成，因此该事实也被
 显式记录，而不是假装它对应一个干净提交。
 
